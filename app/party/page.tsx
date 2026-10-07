@@ -2,47 +2,104 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { useAccounts } from "@/components/AccountProvider";
 import { GameImage } from "@/components/GameImage";
 import { useProfile } from "@/components/ProfileProvider";
-import { partyAdvice, resonances } from "@/lib/party";
+import { combatSteps } from "@/lib/combat";
+import {
+  blankSlots,
+  createParty,
+  nextPartyName,
+  parsePartyFile,
+  partyAdvice,
+  partyMisfits,
+  resonances,
+  type PartyFile,
+} from "@/lib/party";
 import { ELEMENT_CLASS, ELEMENT_LABEL } from "@/lib/stats";
 import type { CharacterBuild } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const PARTY_LIMIT = 8;
+
 export default function PartyPage() {
   const { ready, active } = useAccounts();
   const { profile, loading } = useProfile();
-  const [slots, setSlots] = useState<Array<number | null>>([null, null, null, null]);
+  const [file, setFile] = useState<PartyFile | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
+  const [pickQuery, setPickQuery] = useState("");
 
   useEffect(() => {
     if (!active) return;
-    const raw = localStorage.getItem(`genshin-party:${active.id}`);
-    if (!raw) {
-      setSlots([null, null, null, null]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw) as Array<number | null>;
-      if (Array.isArray(parsed) && parsed.length === 4) setSlots(parsed);
-    } catch {
-      setSlots([null, null, null, null]);
-    }
+    setFile(parsePartyFile(localStorage.getItem(`genshin-party:${active.id}`)));
+    setLoadedFor(active.id);
   }, [active]);
 
-  function update(next: Array<number | null>) {
-    setSlots(next);
+  useEffect(() => {
+    if (picking == null) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [picking]);
+
+  function commit(next: PartyFile) {
+    setFile(next);
     if (active) localStorage.setItem(`genshin-party:${active.id}`, JSON.stringify(next));
   }
 
   const roster = useMemo(() => profile?.characters ?? [], [profile]);
+  const visibleRoster = useMemo(() => {
+    const query = pickQuery.trim();
+    if (!query) return roster;
+    return roster.filter((character) => `${character.name} ${character.weapon?.name ?? ""}`.includes(query));
+  }, [roster, pickQuery]);
+  const party = file?.parties.find((item) => item.id === file.activeId) ?? file?.parties[0] ?? null;
+  const slots = party?.slots ?? blankSlots();
   const chosen = useMemo(
     () => slots.map((id) => roster.find((character) => character.id === id) ?? null),
     [slots, roster]
   );
   const notes = resonances(chosen.map((character) => character?.element));
+  const misfits = useMemo(() => partyMisfits(chosen), [chosen]);
   const advice = partyAdvice(chosen);
+  const steps = combatSteps(chosen);
+  const pickMisfit = useMemo(() => {
+    const reasons = new Map<number, string>();
+    if (picking == null) return reasons;
+    for (const character of roster) {
+      const preview = chosen.map((member, index) => {
+        if (index === picking) return character;
+        if (member?.id === character.id) return null;
+        return member;
+      });
+      const hit = partyMisfits(preview).find((item) => item.id === character.id);
+      if (hit) reasons.set(character.id, hit.reason);
+    }
+    return reasons;
+  }, [picking, chosen, roster]);
+
+  function replaceParty(nextParty: NonNullable<typeof party>) {
+    if (!file) return;
+    commit({
+      ...file,
+      parties: file.parties.map((item) => (item.id === nextParty.id ? nextParty : item)),
+    });
+  }
+
+  function updateSlot(index: number, id: number | null) {
+    if (!party) return;
+    const nextSlots = [...party.slots];
+    if (id != null) {
+      const duplicate = nextSlots.findIndex((slot) => slot === id);
+      if (duplicate >= 0) nextSlots[duplicate] = null;
+    }
+    nextSlots[index] = id;
+    replaceParty({ ...party, slots: nextSlots });
+  }
 
   if (!ready) return null;
   if (!active) {
@@ -52,37 +109,142 @@ export default function PartyPage() {
       </p>
     );
   }
+  if (!file || !party || loadedFor !== active.id) return null;
+
+  const atLimit = file.parties.length >= PARTY_LIMIT;
 
   return (
     <div className="space-y-5">
-      <section>
-        <h1 className="font-display text-2xl font-semibold">파티</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          지금 필드에 편성된 4인은 공개 기록에 없습니다. 여기서 직접 짜고, 나선·환상극에서 가져온 파티와 비교합니다.
-        </p>
-      </section>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={atLimit ? `파티는 ${PARTY_LIMIT}개까지` : "파티 추가"}
+          disabled={atLimit}
+          onClick={() => {
+            const added = createParty(nextPartyName(file.parties));
+            commit({ activeId: added.id, parties: [...file.parties, added] });
+          }}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border disabled:opacity-50"
+        >
+          <Plus className="h-5 w-5" />
+        </button>
+        <div className="scroll-row min-w-0 flex-1">
+          {file.parties.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => commit({ ...file, activeId: item.id })}
+              className={cn(
+                "flex h-11 shrink-0 items-center rounded-full px-4 text-sm",
+                item.id === party.id ? "bg-primary font-semibold text-primary-foreground" : "bg-secondary text-secondary-foreground"
+              )}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <section className="rounded-3xl border border-border bg-card p-4">
-        <h2 className="font-display text-xl font-semibold">내가 짠 파티</h2>
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            aria-label="파티 이름"
+            value={party.name}
+            onChange={(event) => replaceParty({ ...party, name: event.target.value })}
+            onBlur={() => {
+              if (!party.name.trim()) replaceParty({ ...party, name: nextPartyName(file.parties.filter((item) => item.id !== party.id)) });
+            }}
+            className="h-12 min-w-0 flex-1 rounded-2xl border border-input bg-background px-4 text-base outline-none ring-primary focus:ring-2"
+          />
+          {file.parties.length > 1 && (
+            <button
+              type="button"
+              className="h-12 shrink-0 rounded-2xl px-3 text-sm text-destructive"
+              onClick={() => {
+                if (!window.confirm(`${party.name}을 삭제할까요?`)) return;
+                const parties = file.parties.filter((item) => item.id !== party.id);
+                commit({ activeId: parties[0].id, parties });
+              }}
+            >
+              삭제
+            </button>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {chosen.map((character, index) => (
             <button
               key={index}
               type="button"
-              onClick={() => setPicking(index)}
-              className="rounded-2xl bg-secondary p-2 text-center"
+              onClick={() => {
+                setPickQuery("");
+                setPicking(index);
+              }}
+              className={cn(
+                "flex min-h-[4.75rem] items-center gap-3 rounded-2xl bg-secondary px-3 py-2 text-left",
+                character && misfits.some((item) => item.id === character.id) && "ring-1 ring-destructive/70"
+              )}
             >
               {character ? (
                 <>
-                  <GameImage src={character.icon} alt={character.name} className="mx-auto h-14 w-14 rounded-xl" />
-                  <p className="mt-1 truncate text-xs font-medium">{character.name}</p>
+                  <GameImage src={character.icon} alt="" className="h-14 w-14 shrink-0 rounded-xl" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] text-muted-foreground">{index + 1}번</span>
+                    <span className="block truncate text-sm font-medium">{character.name}</span>
+                    <span className={cn("text-[11px]", ELEMENT_CLASS[character.element])}>
+                      {ELEMENT_LABEL[character.element]}
+                    </span>
+                    {misfits.some((item) => item.id === character.id) && (
+                      <span className="block text-[11px] font-medium text-destructive">맞지 않음</span>
+                    )}
+                  </span>
                 </>
               ) : (
-                <span className="grid h-14 place-items-center text-xs text-muted-foreground">비움</span>
+                <>
+                  <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl border border-dashed border-border text-lg text-muted-foreground">
+                    +
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[11px] text-muted-foreground">{index + 1}번</span>
+                    <span className="block text-sm text-muted-foreground">넣기</span>
+                  </span>
+                </>
               )}
             </button>
           ))}
         </div>
+        {misfits.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {misfits.map((item) => (
+              <li key={item.id} className="rounded-2xl bg-destructive/10 px-3 py-2 text-sm font-medium leading-6 text-destructive">
+                {item.text}
+              </li>
+            ))}
+          </ul>
+        )}
+        <h3 className="mt-4 font-display text-lg font-semibold">전투 운용</h3>
+        {steps.length === 0 && (
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">캐릭터를 넣으면 누가 먼저 스킬을 쓰는지 여기에 나옵니다.</p>
+        )}
+        {steps.length > 0 && (
+          <ol className="mt-2 space-y-2">
+            {steps.map((step, index) => (
+              <li key={`${step.title}-${index}`} className="flex gap-3 rounded-2xl bg-secondary/70 px-3 py-3">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                  {index + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-6">{step.title}</span>
+                  <span className="mt-0.5 block text-sm leading-6 text-muted-foreground">{step.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        {steps.length > 0 && (
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
+          </p>
+        )}
         <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
           {notes.map((note) => (
             <li key={note.title}>
@@ -96,43 +258,58 @@ export default function PartyPage() {
       </section>
 
       {picking != null && (
-        <section className="rounded-3xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">{picking + 1}번 자리</h2>
-            <button type="button" className="text-sm text-muted-foreground" onClick={() => setPicking(null)}>
-              닫기
+        <div className="fixed inset-0 z-40 flex items-end justify-center">
+          <button type="button" className="absolute inset-0 bg-black/55" aria-label="닫기" onClick={() => setPicking(null)} />
+          <div className="safe-x relative flex w-full max-w-lg flex-col rounded-t-3xl border border-border bg-card pb-[var(--safe-bottom)] shadow-2xl">
+            <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-border" />
+            <div className="flex items-center justify-between pt-3">
+              <h2 className="font-display text-lg font-semibold">{picking + 1}번 자리</h2>
+              <button
+                type="button"
+                className="h-11 rounded-full px-3 text-sm text-muted-foreground"
+                onClick={() => setPicking(null)}
+              >
+                닫기
+              </button>
+            </div>
+            <input
+              value={pickQuery}
+              onChange={(event) => setPickQuery(event.target.value)}
+              placeholder="이름, 무기 검색"
+              enterKeyHint="search"
+              className="h-12 w-full rounded-2xl border border-input bg-background px-4 text-base outline-none ring-primary focus:ring-2"
+            />
+            <button
+              type="button"
+              className="mt-2 h-11 text-left text-sm text-destructive"
+              onClick={() => {
+                updateSlot(picking, null);
+                setPicking(null);
+              }}
+            >
+              이 자리 비우기
             </button>
+            <div className="mt-1 grid max-h-[min(24rem,calc(70dvh-11rem))] grid-cols-2 gap-2 overflow-y-auto overscroll-contain pb-4">
+              {visibleRoster.map((character) => (
+                <PickerButton
+                  key={character.id}
+                  character={character}
+                  unfit={pickMisfit.get(character.id) ?? null}
+                  onPick={() => {
+                    updateSlot(picking, character.id);
+                    setPicking(null);
+                  }}
+                />
+              ))}
+              {loading && roster.length === 0 && (
+                <p className="col-span-2 py-6 text-center text-sm text-muted-foreground">명단을 불러오는 중입니다.</p>
+              )}
+              {!loading && visibleRoster.length === 0 && (
+                <p className="col-span-2 py-6 text-center text-sm text-muted-foreground">찾는 캐릭터가 없습니다.</p>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            className="mt-2 text-sm text-destructive"
-            onClick={() => {
-              const next = [...slots];
-              next[picking] = null;
-              update(next);
-              setPicking(null);
-            }}
-          >
-            이 자리 비우기
-          </button>
-          <div className="mt-3 grid max-h-80 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-            {roster.map((character) => (
-              <PickerButton
-                key={character.id}
-                character={character}
-                onPick={() => {
-                  const next = [...slots];
-                  const duplicate = next.findIndex((id) => id === character.id);
-                  if (duplicate >= 0) next[duplicate] = null;
-                  next[picking] = character.id;
-                  update(next);
-                  setPicking(null);
-                }}
-              />
-            ))}
-          </div>
-          {loading && roster.length === 0 && <p className="mt-2 text-sm text-muted-foreground">명단을 불러오는 중입니다.</p>}
-        </section>
+        </div>
       )}
 
       <TeamList title="최근 나선" teams={profile?.abyss ?? []} empty="쿠키가 있고 이번 시즌 기록이 있으면 12층·11층 파티가 나옵니다." />
@@ -141,13 +318,31 @@ export default function PartyPage() {
   );
 }
 
-function PickerButton({ character, onPick }: { character: CharacterBuild; onPick: () => void }) {
+function PickerButton({
+  character,
+  unfit,
+  onPick,
+}: {
+  character: CharacterBuild;
+  unfit: string | null;
+  onPick: () => void;
+}) {
   return (
-    <button type="button" onClick={onPick} className="flex items-center gap-2 rounded-2xl bg-secondary px-2 py-2 text-left">
-      <GameImage src={character.icon} alt="" className="h-10 w-10 rounded-lg" />
+    <button
+      type="button"
+      onClick={onPick}
+      className={cn(
+        "flex min-h-14 items-center gap-2 rounded-2xl bg-secondary px-2 py-2 text-left",
+        unfit && "ring-1 ring-destructive/70"
+      )}
+    >
+      <GameImage src={character.icon} alt="" className="h-11 w-11 shrink-0 rounded-xl" />
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{character.name}</span>
-        <span className={cn("text-[11px]", ELEMENT_CLASS[character.element])}>{ELEMENT_LABEL[character.element]}</span>
+        <span className={cn("block truncate text-[11px]", ELEMENT_CLASS[character.element], "bg-transparent ring-0")}>
+          {ELEMENT_LABEL[character.element]} · Lv.{character.level}
+        </span>
+        {unfit && <span className="block truncate text-[11px] font-medium text-destructive">맞지 않음 · {unfit}</span>}
       </span>
     </button>
   );
@@ -169,11 +364,11 @@ function TeamList({
       {teams.map((team) => (
         <article key={team.source + team.characters.map((character) => character.id).join("-")} className="rounded-2xl border border-border bg-card p-3">
           <p className="text-sm font-medium">{team.source}</p>
-          <div className="mt-2 flex gap-2 overflow-x-auto">
+          <div className="scroll-row mt-2 pb-1">
             {team.characters.map((character) => (
-              <Link key={character.id} href={`/characters/${character.id}`} className="w-16 shrink-0 text-center">
-                <GameImage src={character.icon} alt={character.name} className="mx-auto h-14 w-14 rounded-xl bg-secondary" />
-                <p className="mt-1 truncate text-[11px]">{character.name}</p>
+              <Link key={character.id} href={`/characters/${character.id}`} className="w-[4.5rem] shrink-0 text-center">
+                <GameImage src={character.icon} alt={character.name} className="mx-auto h-16 w-16 rounded-2xl bg-secondary" />
+                <p className="mt-1 truncate text-xs">{character.name}</p>
               </Link>
             ))}
           </div>

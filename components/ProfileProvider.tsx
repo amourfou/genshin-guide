@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useAccounts } from "@/components/AccountProvider";
+import { compareByLevel } from "@/lib/roster";
 import type { ProfilePayload } from "@/lib/types";
 
 interface ProfileContextValue {
@@ -22,6 +23,10 @@ const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 function cacheKey(id: string, updatedAt: string) {
   return `genshin-profile:${id}:${updatedAt}`;
+}
+
+function withLevelOrder(profile: ProfilePayload): ProfilePayload {
+  return { ...profile, characters: [...profile.characters].sort(compareByLevel) };
 }
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
@@ -50,7 +55,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       const cached = sessionStorage.getItem(key);
       if (cached) {
         try {
-          setProfile(JSON.parse(cached) as ProfilePayload);
+          setProfile(withLevelOrder(JSON.parse(cached) as ProfilePayload));
         } catch {
           sessionStorage.removeItem(key);
         }
@@ -69,8 +74,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       .then(async (response) => {
         const json = (await response.json()) as ProfilePayload & { error?: string };
         if (!response.ok) throw new Error(json.error || "계정을 불러오지 못했습니다.");
-        setProfile(json);
-        sessionStorage.setItem(key, JSON.stringify(json));
+        const ordered = withLevelOrder(json);
+        setProfile(ordered);
+        sessionStorage.setItem(key, JSON.stringify(ordered));
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;

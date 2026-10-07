@@ -7,6 +7,7 @@ import {
   rarityFromQuality,
 } from "@/lib/catalog";
 import { evaluateBuild } from "@/lib/guide";
+import { compareByLevel } from "@/lib/roster";
 import {
   classifyStatName,
   elementFromGame,
@@ -591,11 +592,7 @@ export function buildProfile(options: {
       ...character,
       guide: evaluateBuild(character, options.guides[character.id] ?? null),
     }))
-    .sort((a, b) => {
-      if (a.showcase !== b.showcase) return a.showcase ? -1 : 1;
-      if (b.guide.score !== a.guide.score) return b.guide.score - a.guide.score;
-      return b.level - a.level || b.rarity - a.rarity;
-    });
+    .sort(compareByLevel);
 
   const roster = new Map(characters.map((character) => [character.id, character]));
   return {

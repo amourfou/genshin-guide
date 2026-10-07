@@ -14,15 +14,15 @@ export default function HomePage() {
 
   if (!active) {
     return (
-      <section className="rounded-3xl border border-border bg-card p-6">
-        <p className="font-display text-2xl font-semibold text-primary">내 빌드를 이 브라우저에서</p>
+      <section className="rounded-3xl border border-border bg-card p-5">
+        <p className="font-display text-2xl font-semibold leading-tight text-primary">내 빌드를 이 핸드폰에서</p>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          UID만 넣으면 프로필에 전시한 캐릭터의 스탯·무기·성유물을 봅니다. 호요랩 쿠키를 이 기기에 저장하면
-          보유 캐릭터 전체와 나선·환상극 파티까지 가져옵니다. 쿠키는 Supabase에 올리지 않습니다.
+          UID만 넣으면 프로필에 전시한 캐릭터의 스탯·무기·성유물을 봅니다. 호요랩 쿠키를 저장하면
+          보유 캐릭터 전체와 나선·환상극 파티까지 가져옵니다. 저장한 계정은 다른 기기에서도 열립니다.
         </p>
         <Link
           href="/accounts"
-          className="mt-5 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground"
+          className="mt-5 flex h-12 w-full items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
         >
           계정 추가
         </Link>
@@ -34,24 +34,26 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-3xl border border-border bg-card p-5">
+      <section className="rounded-3xl border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-primary">{profile?.player.server ?? "원신"}</p>
-            <h1 className="font-display text-2xl font-semibold">{profile?.player.nickname ?? active.label}</h1>
+          <div className="min-w-0">
+            <p className="truncate text-xs text-primary">{profile?.player.server ?? "원신"}</p>
+            <h1 className="truncate font-display text-2xl font-semibold leading-tight">
+              {profile?.player.nickname ?? active.label}
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">UID {active.uid}</p>
           </div>
           <button
             type="button"
             onClick={refresh}
-            className="inline-flex h-10 items-center gap-1 rounded-full border border-border px-3 text-sm"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border"
+            aria-label="새로고침"
             disabled={loading}
           >
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            새로고침
           </button>
         </div>
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
           <Stat label="모험 등급" value={profile?.player.adventureRank ?? "—"} />
           <Stat label="세계 등급" value={profile?.player.worldLevel ?? "—"} />
           <Stat label="업적" value={profile?.player.achievements ?? "—"} />
@@ -73,9 +75,9 @@ export default function HomePage() {
           </Link>
         </div>
         {loading && top.length === 0 && <p className="text-sm text-muted-foreground">불러오는 중입니다.</p>}
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2">
           {top.map((character) => (
-            <CharacterCard key={character.id} character={character} />
+            <CharacterCard key={character.id} character={character} compact />
           ))}
         </div>
       </section>
@@ -85,9 +87,9 @@ export default function HomePage() {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl bg-secondary/70 px-3 py-2">
+    <div className="min-w-0 rounded-2xl bg-secondary/70 px-3 py-2.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-semibold">{value}</dd>
+      <dd className="truncate font-semibold">{value}</dd>
     </div>
   );
 }

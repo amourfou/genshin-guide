@@ -57,15 +57,16 @@ export default function CharactersPage() {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="이름, 무기 검색"
-        className="h-11 w-full rounded-2xl border border-input bg-card px-3 text-sm outline-none ring-primary focus:ring-2"
+        enterKeyHint="search"
+        className="h-12 w-full rounded-2xl border border-input bg-card px-4 text-base outline-none ring-primary focus:ring-2"
       />
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="scroll-row -mx-1 px-1 pb-1">
         {FILTERS.map((item) => (
           <button
             key={item}
             type="button"
             onClick={() => setElement(item)}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${
+            className={`flex h-11 shrink-0 items-center rounded-full px-4 text-sm ${
               element === item ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"
             }`}
           >
@@ -75,9 +76,9 @@ export default function CharactersPage() {
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {loading && characters.length === 0 && <p className="text-sm text-muted-foreground">불러오는 중입니다.</p>}
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2">
         {characters.map((character) => (
-          <CharacterCard key={character.id} character={character} />
+          <CharacterCard key={character.id} character={character} compact />
         ))}
       </div>
     </div>

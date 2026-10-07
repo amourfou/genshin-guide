@@ -24,15 +24,43 @@ export class HoyolabError extends Error {
   }
 }
 
+const LOGIN_KEYS = [
+  "ltuid_v2",
+  "ltoken_v2",
+  "ltmid_v2",
+  "account_id_v2",
+  "account_mid_v2",
+  "cookie_token_v2",
+  "ltuid",
+  "ltoken",
+  "ltmid",
+  "account_id",
+  "cookie_token",
+];
+
+/** Keep only the HoYoLAB login cookies from a full Cookie header paste. */
 export function sanitizeCookie(raw: string): string {
-  const trimmed = raw.replace(/[\r\n]/g, " ").trim();
-  if (trimmed.length < 8 || trimmed.length > 8000) {
+  const trimmed = raw.replace(/[\r\n]/g, " ").replace(/^cookie\s*:\s*/i, "").trim();
+  if (trimmed.length < 8 || trimmed.length > 20000) {
     throw new HoyolabError("쿠키 형식이 너무 짧거나 깁니다.");
   }
-  if (!/=/.test(trimmed)) {
-    throw new HoyolabError("ltuid=값; ltoken=값 형태로 붙여 넣으세요.");
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const part of trimmed.split(";")) {
+    const item = part.trim();
+    const eq = item.indexOf("=");
+    if (eq <= 0) continue;
+    const key = item.slice(0, eq).trim().toLowerCase();
+    if (!LOGIN_KEYS.includes(key) || seen.has(key)) continue;
+    seen.add(key);
+    kept.push(`${key}=${item.slice(eq + 1).trim()}`);
   }
-  return trimmed;
+  const hasV2 = seen.has("ltuid_v2") && seen.has("ltoken_v2");
+  const hasV1 = seen.has("ltuid") && seen.has("ltoken");
+  if (!hasV2 && !hasV1) {
+    throw new HoyolabError("ltuid와 ltoken을 찾지 못했습니다. 네트워크 탭의 Cookie 한 줄을 그대로 붙여 넣으세요.");
+  }
+  return kept.join("; ");
 }
 
 function randomString(length: number, alphabet: string): string {
