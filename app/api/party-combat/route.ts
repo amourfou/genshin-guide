@@ -1,7 +1,7 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText, isStepCount, jsonSchema, Output } from "ai";
 import { NextResponse } from "next/server";
-import { answerCoversParty, combatBriefText, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
+import { answerCoversParty, combatBriefText, keepStarTeam, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -102,7 +102,10 @@ note: 이 계정 스탯 때문에 순서가 달라지면 한 문장. 없으면 �
 - 종려와 카즈하의 원소전투는 홀드다. 카즈하는 홀드 후 낙하공격이다.
 - 슈브르즈가 있으면 불과 번개만 둔다. 닐루가 있으면 물과 풀만 둔다.
 - 호두에게는 생명력을 크게 채우는 힐러를 붙이지 않는다. 아를레키노에게는 계약을 지우는 힐러를 붙이지 않는다. 베넷은 아를레키노 쪽에 둔다.
-- 필드를 잡는 메인 딜러는 한 명만 둔다.`;
+- 필드를 잡는 메인 딜러는 한 명만 둔다.
+- 베스나는 바람 원소 별확산 딜러다. 물이 아니고 보댜니차가 아니다. 물 캐릭터로 바꾸거나 빼지 않는다.
+- 얼음 여행자가 있으면 얼음 확산은 별확산, 초전도는 별초전도가 된다. 이 효과를 받으려고 넣은 캐릭터를 물이 없다는 이유로 빼지 않는다.
+- 얼음 여행자와 베스나 또는 미즈키가 같이 있으면 별확산 파티다. 얼음을 먼저 묻히고 바람이 확산한 뒤 별확산 딜러가 필드에 남는다. 물은 조건이 아니다. 설탕과 디오나는 맞는 서포터다. 이 네 명을 교체하지 않는다. 검색 결과가 다르면 이 규칙을 따른다.`;
 
 export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
@@ -121,7 +124,7 @@ export async function POST(request: Request) {
   const members = asMembers(payload);
   if (!members) return NextResponse.json({ error: "failed" }, { status: 400 });
 
-  const cacheKey = JSON.stringify(members);
+  const cacheKey = `2:${JSON.stringify(members)}`;
   const cached = answers.get(cacheKey);
   if (cached && Date.now() - cached.at < ANSWER_TTL_MS) {
     return NextResponse.json(cached.body);
@@ -160,7 +163,8 @@ export async function POST(request: Request) {
         openai: { store: false },
       },
     });
-    const parsed = parseCombatAnswer(output);
+    const parsedRaw = parseCombatAnswer(output);
+    const parsed = parsedRaw ? keepStarTeam(parsedRaw, members) : null;
     if (!parsed || !answerCoversParty(parsed, members)) {
       return NextResponse.json({ error: "failed" }, { status: 502 });
     }

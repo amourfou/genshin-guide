@@ -63,7 +63,7 @@ export function partyBriefKey(members: PartyCombatMember[]): string {
     hash ^= raw.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return `${(hash >>> 0).toString(16)}:${raw.length}`;
+  return `2:${(hash >>> 0).toString(16)}:${raw.length}`;
 }
 
 export function combatBriefText(members: PartyCombatMember[]): string {
@@ -79,7 +79,50 @@ export function combatBriefText(members: PartyCombatMember[]): string {
         `기준 ${member.targets}`,
       ].join("\n")
     )
-    .join("\n\n");
+    .join("\n\n") + starTeamNote(members);
+}
+
+const CRYO_TRAVELER = /여행자|아이테르|루미네/;
+
+export function starTeamNote(members: PartyCombatMember[]): string {
+  const cryoTraveler = members.find((member) => member.element === "얼음" && CRYO_TRAVELER.test(member.name));
+  const vesna = members.some((member) => member.name.includes("베스나"));
+  const mizuki = members.some((member) => member.name.includes("미즈키"));
+  const lines: string[] = [];
+  if (vesna) {
+    lines.push("확인된 사실: 베스나는 바람 원소 별확산 딜러다. 물이 아니다. 보댜니차와 다른 캐릭터다. 물 캐릭터로 바꾸거나 빼지 않는다.");
+  }
+  if (cryoTraveler) {
+    lines.push(`확인된 사실: ${cryoTraveler.name}는 얼음 여행자다. 이 캐릭터가 파티의 얼음 확산을 별확산으로, 초전도를 별초전도로 바꾼다. 물을 넣으려고 빼지 않는다.`);
+  }
+  if (cryoTraveler && (vesna || mizuki)) {
+    lines.push("확인된 사실: 이 파티는 별확산 파티다. 얼음을 먼저 묻히고 바람이 확산하면 별확산이 된다. 물은 조건이 아니다. 설탕은 원소 마스터리, 디오나는 보호막과 얼음 부착이라 맞다. 디오나 보호막은 원소전투 홀드다. 지금 멤버를 유지하고 swaps는 빈 배열로 둔다.");
+  }
+  return lines.length ? `\n\n${lines.join("\n")}` : "";
+}
+
+export function keepStarTeam(guide: PartyGuide, members: PartyCombatMember[]): PartyGuide {
+  const cryoTraveler = members.find((member) => member.element === "얼음" && CRYO_TRAVELER.test(member.name));
+  const driver = members.some((member) => member.name.includes("베스나") || member.name.includes("미즈키"));
+  if (!cryoTraveler || !driver) return guide;
+  const names = members.map((member) => member.name);
+  const lineup = names.slice(0, 4).map((name) => {
+    const existing = guide.lineup.find((slot) => slot.name === name);
+    const role = existing?.role || (name.includes("베스나") || name.includes("미즈키") ? "별확산" : name === cryoTraveler.name ? "별 변환" : "지원");
+    return { name, role, state: "유지" as const };
+  });
+  const gaps = guide.gaps.filter((gap) => !mentionsHydroSwap(gap) && !names.some((name) => gap.includes(name) && /바꾸|빼|교체/.test(gap)));
+  return {
+    ...guide,
+    swaps: [],
+    lineup,
+    gaps: gaps.length > 0 ? gaps : ["큰 구멍은 없습니다. 별확산이라 물이 필요하지 않습니다."],
+    note: mentionsHydroSwap(guide.note) ? "" : guide.note,
+  };
+}
+
+function mentionsHydroSwap(text: string): boolean {
+  return /물로 바꾸|물을 넣|물 캐릭|물 원소|물이 필요|물이 없|하이드로|빙결/.test(text);
 }
 
 const MARKDOWN_LINK = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
