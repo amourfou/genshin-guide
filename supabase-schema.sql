@@ -78,3 +78,22 @@ create policy "genshin_accounts_all"
   with check (true);
 
 grant select, insert, update, delete on public.genshin_accounts to anon, authenticated;
+
+-- 파티 화면에서 저장한 구성. 원신 계정 하나에 파일 하나.
+create table if not exists public.genshin_parties (
+  account_id uuid primary key references public.genshin_accounts(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.genshin_parties enable row level security;
+
+drop policy if exists "genshin_parties_all" on public.genshin_parties;
+create policy "genshin_parties_all"
+  on public.genshin_parties
+  for all
+  using (true)
+  with check (true);
+
+grant select, insert, update, delete on public.genshin_parties to anon, authenticated;

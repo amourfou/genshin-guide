@@ -35,17 +35,15 @@ export function LoginScreen({ onLogin }: { onLogin: (name: string) => Promise<{ 
       <form onSubmit={submit} className="safe-x flex flex-1 flex-col justify-center pb-16">
         <p className="font-display text-2xl font-semibold text-primary">원신 가이드</p>
         <h1 className="mt-2 text-xl font-semibold">로그인</h1>
-        <label className="mt-6 block text-sm">
-          이름
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="username"
-            autoCapitalize="off"
-            className="mt-1 h-12 w-full rounded-2xl border border-input bg-background px-4 text-base"
-            placeholder="이름"
-          />
-        </label>
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoComplete="username"
+          autoCapitalize="off"
+          aria-label="이름"
+          className="mt-6 h-12 w-full rounded-2xl border border-input bg-background px-4 text-base"
+          placeholder="이름"
+        />
         {error && <p className="mt-3 text-sm leading-6 text-destructive">{error}</p>}
         <button
           type="submit"

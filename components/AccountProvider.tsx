@@ -21,6 +21,8 @@ import {
   type GameAccount,
 } from "@/lib/accounts";
 import { fetchAccountStore, fetchExistingAccountIds, saveAccountStore, type AccountCloud } from "@/lib/accountSync";
+import { deleteParty, syncAccountParties } from "@/lib/partySync";
+import { partyStorageKey } from "@/lib/partyStore";
 import { useSession } from "@/components/SessionProvider";
 
 interface AccountContextValue {
@@ -113,6 +115,12 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     };
   }, [sessionReady, user]);
 
+  const accountIds = store.accounts.map((account) => account.id).join(",");
+  useEffect(() => {
+    if (!ready || !user || !accountIds) return;
+    void syncAccountParties(user.id, accountIds.split(","));
+  }, [ready, user, accountIds]);
+
   const commit = useCallback(
     (next: AccountStore) => {
       const userId = userIdRef.current;
@@ -158,7 +166,9 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       const accounts = store.accounts.filter((account) => account.id !== id);
       const activeId = store.activeId === id ? accounts[0]?.id ?? null : store.activeId;
       commit({ activeId, accounts });
-      localStorage.removeItem(`genshin-party:${id}`);
+      localStorage.removeItem(partyStorageKey(id));
+      const userId = userIdRef.current;
+      if (userId) void deleteParty(userId, id);
     },
     [commit, store]
   );

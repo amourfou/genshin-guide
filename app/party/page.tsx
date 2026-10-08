@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useAccounts } from "@/components/AccountProvider";
 import { GameImage } from "@/components/GameImage";
 import { useProfile } from "@/components/ProfileProvider";
+import { useSession } from "@/components/SessionProvider";
 import { combatSteps } from "@/lib/combat";
 import {
   blankSlots,
   createParty,
   nextPartyName,
-  parsePartyFile,
   partyAdvice,
   partyMisfits,
   resonances,
   type PartyFile,
 } from "@/lib/party";
+import { queuePartySave, reconcileParty } from "@/lib/partySync";
+import { readStoredParty, writeStoredParty } from "@/lib/partyStore";
 import { ELEMENT_CLASS, ELEMENT_LABEL } from "@/lib/stats";
 import type { CharacterBuild } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -25,17 +27,32 @@ const PARTY_LIMIT = 8;
 
 export default function PartyPage() {
   const { ready, active } = useAccounts();
+  const { user } = useSession();
   const { profile, loading } = useProfile();
   const [file, setFile] = useState<PartyFile | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
   const [pickQuery, setPickQuery] = useState("");
+  const edited = useRef(false);
 
+  const activeId = active?.id ?? null;
   useEffect(() => {
-    if (!active) return;
-    setFile(parsePartyFile(localStorage.getItem(`genshin-party:${active.id}`)));
-    setLoadedFor(active.id);
-  }, [active]);
+    if (!activeId) return;
+    edited.current = false;
+    const local = readStoredParty(activeId);
+    setFile(local.file);
+    setLoadedFor(activeId);
+    const userId = user?.id;
+    if (!userId) return;
+    let cancel = false;
+    void reconcileParty(userId, activeId).then((next) => {
+      if (cancel || edited.current) return;
+      setFile(next);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [activeId, user?.id]);
 
   useEffect(() => {
     if (picking == null) return;
@@ -47,8 +64,11 @@ export default function PartyPage() {
   }, [picking]);
 
   function commit(next: PartyFile) {
+    edited.current = true;
     setFile(next);
-    if (active) localStorage.setItem(`genshin-party:${active.id}`, JSON.stringify(next));
+    if (!active) return;
+    const updatedAt = writeStoredParty(active.id, next);
+    if (user) void queuePartySave(user.id, active.id, next, updatedAt);
   }
 
   const roster = useMemo(() => profile?.characters ?? [], [profile]);

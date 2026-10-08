@@ -90,7 +90,7 @@ export default function AccountsPage() {
         <h1 className="font-display text-2xl font-semibold">계정</h1>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
           {user ? `${user.name} 계정에 UID와 쿠키를 등록합니다. ` : ""}
-          같은 이름으로 들어가면 다른 기기에서도 이 목록이 열립니다. 파티 구성은 각 기기에 남습니다.
+          같은 이름으로 들어가면 다른 기기에서도 이 목록과 파티가 열립니다.
         </p>
         <button type="button" className="mt-3 h-11 rounded-full border border-border px-4 text-sm" onClick={logout}>
           나가기
