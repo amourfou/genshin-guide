@@ -1,12 +1,7 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import "server-only";
 import { LOCAL_GUIDES } from "@/lib/guides";
+import { adminDb } from "@/lib/server/db";
 import type { GuideSetOption, GuideTemplate, Scaling, StatKey, TalentFocus } from "@/lib/types";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-
-export const supabase: SupabaseClient | null =
-  supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 interface GuideRow {
   character_id: number;
@@ -27,19 +22,15 @@ interface GuideRow {
 }
 
 function isTemplate(row: GuideRow): boolean {
-  return Boolean(
-    row &&
-      row.character_id &&
-      row.role &&
-      Array.isArray(row.sands) &&
-      Array.isArray(row.sets)
-  );
+  return Boolean(row && row.character_id && row.role && Array.isArray(row.sands) && Array.isArray(row.sets));
 }
 
+/** lib/guides.ts first; a genshin_guides row with the same character_id replaces that character. */
 export async function loadGuides(): Promise<Record<number, GuideTemplate>> {
   const guides: Record<number, GuideTemplate> = { ...LOCAL_GUIDES };
-  if (!supabase) return guides;
-  const { data, error } = await supabase.from("genshin_guides").select("*");
+  const db = adminDb();
+  if (!db) return guides;
+  const { data, error } = await db.from("genshin_guides").select("*");
   if (error || !data) return guides;
   for (const raw of data as GuideRow[]) {
     if (!isTemplate(raw)) continue;

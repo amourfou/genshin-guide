@@ -68,7 +68,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     void fetch("/api/profile", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uid: active.uid, cookie: active.cookie || undefined }),
+      body: JSON.stringify({ accountId: active.id }),
       signal: controller.signal,
     })
       .then(async (response) => {

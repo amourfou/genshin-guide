@@ -20,7 +20,7 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { ready: sessionReady, user, login, logout } = useSession();
+  const { ready: sessionReady, user, login, logout, savedName, problem } = useSession();
   const { accounts, active, activate } = useAccounts();
   const { profile } = useProfile();
   const { resolvedTheme, setTheme } = useTheme();
@@ -41,7 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [accountMenu]);
 
   if (!sessionReady) return <div className="min-h-dvh" />;
-  if (!user) return <LoginScreen onLogin={login} />;
+  if (!user) return <LoginScreen onLogin={login} savedName={savedName} problem={problem} />;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col md:border-x md:border-border/70">

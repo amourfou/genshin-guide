@@ -2,7 +2,8 @@
 -- WordCatch와 같은 Supabase 프로젝트의 SQL Editor에서 실행합니다.
 -- 파티 구성은 넣지 않습니다. 그 값은 각 기기의 로컬 저장소에 남습니다.
 -- genshin_guides 행이 있으면 lib/guides.ts 의 같은 character_id 를 덮어씁니다.
--- genshin_accounts 는 anon 키로 읽고 씁니다. 호요랩 쿠키가 그 키를 가진 요청에 보입니다.
+-- genshin_accounts / genshin_parties / genshin_logins 는 서버(SUPABASE_SERVICE_ROLE_KEY)만 읽고 씁니다.
+-- anon 키에는 정책도 권한도 주지 않습니다. 이미 만든 프로젝트는 supabase/migrations/20261008_lock_down.sql 을 실행합니다.
 
 create table if not exists public.genshin_guides (
   character_id integer primary key,
@@ -24,6 +25,7 @@ create table if not exists public.genshin_guides (
 );
 
 alter table public.genshin_guides enable row level security;
+revoke insert, update, delete on public.genshin_guides from anon, authenticated;
 
 drop policy if exists "public read genshin guides" on public.genshin_guides;
 create policy "public read genshin guides"
@@ -71,13 +73,8 @@ create unique index if not exists genshin_accounts_one_active
 alter table public.genshin_accounts enable row level security;
 
 drop policy if exists "genshin_accounts_all" on public.genshin_accounts;
-create policy "genshin_accounts_all"
-  on public.genshin_accounts
-  for all
-  using (true)
-  with check (true);
-
-grant select, insert, update, delete on public.genshin_accounts to anon, authenticated;
+revoke all on public.genshin_accounts from anon, authenticated;
+grant select, insert, update, delete on public.genshin_accounts to service_role;
 
 -- 파티 화면에서 저장한 구성. 원신 계정 하나에 파일 하나.
 create table if not exists public.genshin_parties (
@@ -90,10 +87,22 @@ create table if not exists public.genshin_parties (
 alter table public.genshin_parties enable row level security;
 
 drop policy if exists "genshin_parties_all" on public.genshin_parties;
-create policy "genshin_parties_all"
-  on public.genshin_parties
-  for all
-  using (true)
-  with check (true);
+revoke all on public.genshin_parties from anon, authenticated;
+grant select, insert, update, delete on public.genshin_parties to service_role;
 
-grant select, insert, update, delete on public.genshin_parties to anon, authenticated;
+-- 원신 가이드 로그인 비밀번호. 이름마다 한 행, 처음 들어올 때 정합니다.
+-- 비밀번호를 잊으면 이 표에서 그 user_id 행을 지우고, 다음 로그인에서 새로 정합니다.
+create table if not exists public.genshin_logins (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  secret_hash text not null,
+  failed_count integer not null default 0,
+  locked_until timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.genshin_logins enable row level security;
+revoke all on public.genshin_logins from anon, authenticated;
+grant select, insert, update, delete on public.genshin_logins to service_role;
+
+-- users 표는 다른 앱과 같이 씁니다. 잠그려면 supabase/migrations/20261008_lock_down_users.sql 을 확인 후 실행합니다.
