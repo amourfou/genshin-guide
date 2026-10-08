@@ -214,7 +214,7 @@ function readHoyoCharacter(raw: unknown, propertyMap: Record<string, unknown>): 
     });
   }
 
-  const talents = readHoyoTalents(asArray(row.skills));
+  const talents = readHoyoTalents(asArray(row.skills), catalog?.talents);
   const stats = readHoyoStats(row, propertyMap);
 
   return {
@@ -235,30 +235,55 @@ function readHoyoCharacter(raw: unknown, propertyMap: Record<string, unknown>): 
   };
 }
 
-function readHoyoTalents(skills: unknown[]): TalentInfo | null {
+function readHoyoTalents(
+  skills: unknown[],
+  talentIds?: { normal: number | null; skill: number | null; burst: number | null } | null
+): TalentInfo | null {
+  const rows: Array<{ id: number; name: string; type: number; level: number }> = [];
+  for (const item of skills) {
+    const row = asRecord(item);
+    if (!row) continue;
+    rows.push({
+      id: num(row.skill_id ?? row.id),
+      name: str(row.name).toLowerCase(),
+      type: num(row.skill_type),
+      level: num(row.level),
+    });
+  }
+  if (rows.length === 0) return null;
+
+  // HoYoLAB marks the normal attack, the skill, and the burst all as skill_type 1.
+  // Passives are skill_type 2. An alternate sprint can sit between the skill and the burst.
+  const byId = new Map(rows.filter((row) => row.id > 0).map((row) => [row.id, row.level]));
+  if (talentIds?.normal && talentIds.skill && talentIds.burst) {
+    const normal = byId.get(talentIds.normal);
+    const skill = byId.get(talentIds.skill);
+    const burst = byId.get(talentIds.burst);
+    if (normal != null && skill != null && burst != null) return { normal, skill, burst };
+  }
+
+  const combat = rows.filter((row) => row.type === 1);
+  if (combat.length >= 3) {
+    return {
+      normal: combat[0].level,
+      skill: combat[1].level,
+      burst: combat[combat.length - 1].level,
+    };
+  }
+
   let normal = 0;
   let skill = 0;
   let burst = 0;
   let found = false;
-  for (const item of skills) {
-    const row = asRecord(item);
-    if (!row) continue;
-    const name = str(row.name).toLowerCase();
-    const type = num(row.skill_type);
-    const level = num(row.level);
-    if (name.includes("일반") || name.includes("normal attack") || type === 1) {
-      normal = level;
+  for (const row of rows) {
+    if (row.name.includes("일반") || row.name.includes("normal attack")) {
+      normal = row.level;
       found = true;
-    } else if (name.includes("원소전투") || name.includes("elemental skill") || type === 2) {
-      skill = level;
+    } else if (row.name.includes("원소전투") || row.name.includes("elemental skill")) {
+      skill = row.level;
       found = true;
-    } else if (
-      name.includes("원소폭발") ||
-      name.includes("elemental burst") ||
-      type === 9 ||
-      type === 3
-    ) {
-      burst = level;
+    } else if (row.name.includes("원소폭발") || row.name.includes("elemental burst")) {
+      burst = row.level;
       found = true;
     }
   }
@@ -301,13 +326,17 @@ function readEnkaCharacter(raw: unknown): Omit<CharacterBuild, "guide"> | null {
 
   let talents: TalentInfo | null = null;
   if (catalog?.talents) {
-    const read = (skillId: number | null) => (skillId ? num(talentsMap[String(skillId)]) || 1 : 0);
-    const next = {
-      normal: read(catalog.talents.normal),
-      skill: read(catalog.talents.skill),
-      burst: read(catalog.talents.burst),
+    const read = (skillId: number | null): number | null => {
+      if (!skillId || talentsMap[String(skillId)] == null) return null;
+      const level = num(talentsMap[String(skillId)]);
+      return level > 0 ? level : null;
     };
-    if (next.normal || next.skill || next.burst) talents = next;
+    const normal = read(catalog.talents.normal);
+    const skill = read(catalog.talents.skill);
+    const burst = read(catalog.talents.burst);
+    if (normal != null || skill != null || burst != null) {
+      talents = { normal: normal ?? 0, skill: skill ?? 0, burst: burst ?? 0 };
+    }
   }
 
   const fight = asRecord(row.fightPropMap) ?? {};
@@ -424,6 +453,17 @@ function preferName(hoyo: string, enka: string): string {
   return enka || hoyo;
 }
 
+function mergeTalents(hoyo: TalentInfo | null, enka: TalentInfo | null): TalentInfo | null {
+  if (!hoyo) return enka;
+  if (!enka) return hoyo;
+  const pick = (left: number, right: number) => (right > 0 ? right : left);
+  return {
+    normal: pick(hoyo.normal, enka.normal),
+    skill: pick(hoyo.skill, enka.skill),
+    burst: pick(hoyo.burst, enka.burst),
+  };
+}
+
 function mergeCharacter(
   hoyo: Omit<CharacterBuild, "guide"> | undefined,
   enka: Omit<CharacterBuild, "guide"> | undefined
@@ -442,7 +482,7 @@ function mergeCharacter(
     friendship: left.friendship || right.friendship,
     constellation: Math.max(left.constellation, right.constellation),
     icon: left.icon || right.icon,
-    talents: right.talents ?? left.talents,
+    talents: mergeTalents(left.talents, right.talents),
     stats: right.stats ?? left.stats,
     weapon: mergeWeapon(left.weapon, right.weapon),
     artifacts: left.artifacts.length >= right.artifacts.length ? left.artifacts : right.artifacts,

@@ -63,7 +63,7 @@ export function partyBriefKey(members: PartyCombatMember[]): string {
     hash ^= raw.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return `2:${(hash >>> 0).toString(16)}:${raw.length}`;
+  return `3:${(hash >>> 0).toString(16)}:${raw.length}`;
 }
 
 export function combatBriefText(members: PartyCombatMember[]): string {
@@ -123,6 +123,76 @@ export function keepStarTeam(guide: PartyGuide, members: PartyCombatMember[]): P
 
 function mentionsHydroSwap(text: string): boolean {
   return /물로 바꾸|물을 넣|물 캐릭|물 원소|물이 필요|물이 없|하이드로|빙결/.test(text);
+}
+
+const TALENT_FIELDS = [
+  { key: "normal" as const, word: /평타|일반\s*공격/, brief: /평타\s*(\d+)/ },
+  { key: "skill" as const, word: /원소\s*전투/, brief: /원소전투\s*(\d+)/ },
+  { key: "burst" as const, word: /원소\s*폭발/, brief: /원소폭발\s*(\d+)/ },
+];
+
+function talentLevels(text: string): Record<"normal" | "skill" | "burst", number> | null {
+  const levels = { normal: 0, skill: 0, burst: 0 };
+  let found = false;
+  for (const field of TALENT_FIELDS) {
+    const match = field.brief.exec(text);
+    if (!match) continue;
+    levels[field.key] = Number(match[1]);
+    found = true;
+  }
+  return found ? levels : null;
+}
+
+function rewriteTalentNumbers(text: string, name: string, levels: Record<"normal" | "skill" | "burst", number>): string {
+  if (!text.includes(name)) return text;
+  let next = text;
+  for (const field of TALENT_FIELDS) {
+    next = next.replace(new RegExp(`(${field.word.source})([^\\d]{0,12}?)(\\d+)`, "g"), (all, word, mid, raw) => {
+      const level = Number(raw);
+      const actual = levels[field.key];
+      if (actual > 0 && level > 0 && level < actual) return `${word}${mid}${actual}`;
+      return all;
+    });
+  }
+  return next;
+}
+
+function falseTalentRaise(text: string, name: string, levels: Record<"normal" | "skill" | "burst", number>): boolean {
+  if (!text.includes(name) || !/올리|올려/.test(text)) return false;
+  if (/충전|치명|공격력|생명|방어|마스터리|성유물|무기|재련|세트/.test(text)) return false;
+  return TALENT_FIELDS.some((field) => {
+    if (!field.word.test(text) || levels[field.key] <= 0) return false;
+    const nums = [...text.matchAll(/\d+/g)].map((match) => Number(match[0]));
+    return nums.length > 0 && nums.every((level) => level <= levels[field.key]);
+  });
+}
+
+export function keepTalentFacts(guide: PartyGuide, members: PartyCombatMember[]): PartyGuide {
+  const known = members.flatMap((member) => {
+    const levels = talentLevels(member.talents);
+    return levels ? [{ name: member.name, levels }] : [];
+  });
+  if (known.length === 0) return guide;
+  const rewrite = (text: string) => known.reduce((next, member) => rewriteTalentNumbers(next, member.name, member.levels), text);
+  const dropRaise = (text: string) => known.some((member) => falseTalentRaise(text, member.name, member.levels));
+  const gaps = guide.gaps.map(rewrite).filter((gap) => gap && !dropRaise(gap));
+  const gear = guide.gear.flatMap((item) => {
+    const owner = known.find((member) => member.name === item.name) ?? known.find((member) => item.name.includes(member.name));
+    if (!owner) return [item];
+    const field = TALENT_FIELDS.find((entry) => entry.word.test(item.item));
+    if (!field || owner.levels[field.key] <= 0) return [item];
+    const actual = owner.levels[field.key];
+    const goal = /(\d+)/.exec(item.goal);
+    if (goal && Number(goal[1]) <= actual) return [];
+    return [{ ...item, now: String(actual), reason: rewrite(item.reason) }];
+  });
+  return {
+    ...guide,
+    gaps: gaps.length > 0 ? gaps : ["큰 구멍은 없습니다"],
+    gear,
+    swaps: guide.swaps.map((swap) => ({ ...swap, reason: rewrite(swap.reason) })),
+    note: dropRaise(rewrite(guide.note)) ? "" : rewrite(guide.note),
+  };
 }
 
 const MARKDOWN_LINK = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;

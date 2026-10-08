@@ -1,7 +1,7 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText, isStepCount, jsonSchema, Output } from "ai";
 import { NextResponse } from "next/server";
-import { answerCoversParty, combatBriefText, keepStarTeam, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
+import { answerCoversParty, combatBriefText, keepStarTeam, keepTalentFacts, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -88,13 +88,14 @@ const INSTRUCTIONS = `너는 원신 파티 코치다. 입력은 지금 넣은 �
 
 gaps: 이 파티에서 실제로 비는 역할이나 원소. 1~3개. 문제가 없으면 "큰 구멍은 없습니다" 한 줄만 적는다. 없는 문제를 만들지 않는다.
 swaps: 빼는 캐릭터 out, 넣는 캐릭터 inn, 이유 reason. 지금 네 명이 이미 성립하면 빈 배열. 널리 쓰는 정상 조합을 억지로 바꾸지 않는다.
-gear: 남기는 캐릭터는 입력의 현재 수치만 now에 적는다. 추가 캐릭터는 계정에 없으므로 now는 "없음"이고 무기나 세트 방향만 적어도 된다. item은 무기, 재련, 평타, 원소전투, 원소폭발, 성유물 세트, 모래, 잔, 모자, 또는 스탯 이름. goal은 준졸업 또는 졸업, 혹은 그 캐릭터에게 필요한 지점. reason은 왜 거기까지만 올리면 되는지 한 문장. 이미 졸업이거나 목표가 필요 없으면 그 항목은 뺀다. 올릴 것이 없으면 빈 배열.
+gear: 남기는 캐릭터는 입력의 현재 수치만 now에 적는다. 특성 now는 입력의 평타, 원소전투, 원소폭발 숫자를 그대로 쓴다. 그 숫자보다 낮다고 쓰지 않고, 이미 목표 이상이면 그 특성은 넣지 않는다. 추가 캐릭터는 계정에 없으므로 now는 "없음"이고 무기나 세트 방향만 적어도 된다. item은 무기, 재련, 평타, 원소전투, 원소폭발, 성유물 세트, 모래, 잔, 모자, 또는 스탯 이름. goal은 준졸업 또는 졸업, 혹은 그 캐릭터에게 필요한 지점. reason은 왜 거기까지만 올리면 되는지 한 문장. 이미 졸업이거나 목표가 필요 없으면 그 항목은 뺀다. 올릴 것이 없으면 빈 배열.
 lineup: 추천 4명. 지금 멤버가 남으면 state는 "유지"이고 이름은 입력 그대로. 새로 넣는 사람은 state "추가"와 한국 이름. role은 그 자리에서 하는 일.
 steps: lineup 4명의 버튼 순서. 장판, 보호막, 버프, 원소 부착, 치유를 먼저 하고 그 캐릭터는 내린다. 필드를 잡고 공격하는 캐릭터는 그 다음 들어온다. title은 이름과 버튼만. 짧게 누르기, 홀드, 홀드 후 낙하, 강공격, 일반공격, 원소폭발처럼 손가락이 하는 일을 쓴다. detail은 그 타이밍인 이유 한 문장. lineup의 이름은 모두 순서에 한 번은 나온다.
 note: 이 계정 스탯 때문에 순서가 달라지면 한 문장. 없으면 빈 문자열.
 
 규칙:
 - 역할 힌트보다 무기, 성유물, 스탯, 기준의 준졸업과 졸업을 우선한다. 원소 마스터리나 충전 위주면 서포터로, 공격력과 치명 위주면 딜러로 본다.
+- 특성의 현재 레벨은 입력 문장의 숫자다. 평타가 8이면 1이라고 쓰거나 8로 올리라고 하지 않는다.
 - 충전 효율이 기준보다 낮으면 그 원소폭발은 게이지가 찼을 때만 순서에 넣는다.
 - 프레임 수를 만들지 않는다. 초가 필요한 메커니즘만 적는다.
 - web_search는 입력의 캐릭터, 성유물, 무기, 아이템 중에 네가 모르는 이름이 있을 때만 호출한다. 아는 이름은 검색하지 말고 바로 답한다. 모르는 이름만 찾고, 검색은 두 번을 넘기지 않는다. 이 계정의 스탯 숫자는 검색하지 않는다. 검색 결과와 아래 규칙이 다르면 아래 규칙을 따른다.
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
   const members = asMembers(payload);
   if (!members) return NextResponse.json({ error: "failed" }, { status: 400 });
 
-  const cacheKey = `2:${JSON.stringify(members)}`;
+  const cacheKey = `3:${JSON.stringify(members)}`;
   const cached = answers.get(cacheKey);
   if (cached && Date.now() - cached.at < ANSWER_TTL_MS) {
     return NextResponse.json(cached.body);
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
     const searches = steps.reduce((count, step) => count + step.toolCalls.filter((call) => call.toolName === "web_search").length, 0);
     console.error("party-combat searches", searches);
     const parsedRaw = parseCombatAnswer(output);
-    const parsed = parsedRaw ? keepStarTeam(parsedRaw, members) : null;
+    const parsed = parsedRaw ? keepTalentFacts(keepStarTeam(parsedRaw, members), members) : null;
     if (!parsed || !answerCoversParty(parsed, members)) {
       return NextResponse.json({ error: "failed" }, { status: 502 });
     }
