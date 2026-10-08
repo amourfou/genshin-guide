@@ -7,7 +7,7 @@ import { useAccounts } from "@/components/AccountProvider";
 import { GameImage } from "@/components/GameImage";
 import { useProfile } from "@/components/ProfileProvider";
 import { useSession } from "@/components/SessionProvider";
-import { combatSteps } from "@/lib/combat";
+import type { CombatStep } from "@/lib/combat";
 import {
   blankSlots,
   createParty,
@@ -17,6 +17,8 @@ import {
   resonances,
   type PartyFile,
 } from "@/lib/party";
+import { partyBriefKey, partyCombatBrief } from "@/lib/partyBrief";
+import { clearCombatCache, readCombatCache, writeCombatCache } from "@/lib/partyCombatCache";
 import { queuePartySave, reconcileParty } from "@/lib/partySync";
 import { readStoredParty, writeStoredParty } from "@/lib/partyStore";
 import { ELEMENT_CLASS, ELEMENT_LABEL } from "@/lib/stats";
@@ -24,6 +26,18 @@ import type { CharacterBuild } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PARTY_LIMIT = 8;
+
+function sourceLabel(href: string): string {
+  try {
+    const url = new URL(href);
+    const host = url.hostname.replace(/^www\./, "");
+    const slug = url.pathname.split("/").filter(Boolean).pop()?.replace(/[-_]/g, " ") ?? "";
+    const label = slug ? `${host} · ${slug}` : host;
+    return label.length > 42 ? `${label.slice(0, 41)}…` : label;
+  } catch {
+    return "출처";
+  }
+}
 
 export default function PartyPage() {
   const { ready, active } = useAccounts();
@@ -33,6 +47,9 @@ export default function PartyPage() {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
   const [pickQuery, setPickQuery] = useState("");
+  const [combatAttempt, setCombatAttempt] = useState(0);
+  const [combatStatus, setCombatStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [combatAnswer, setCombatAnswer] = useState<{ key: string; steps: CombatStep[]; note: string; sources: string[] } | null>(null);
   const edited = useRef(false);
 
   const activeId = active?.id ?? null;
@@ -86,7 +103,8 @@ export default function PartyPage() {
   const notes = resonances(chosen.map((character) => character?.element));
   const misfits = useMemo(() => partyMisfits(chosen), [chosen]);
   const advice = partyAdvice(chosen);
-  const steps = combatSteps(chosen);
+  const brief = useMemo(() => partyCombatBrief(chosen), [chosen]);
+  const briefKey = useMemo(() => partyBriefKey(brief), [brief]);
   const pickMisfit = useMemo(() => {
     const reasons = new Map<number, string>();
     if (picking == null) return reasons;
@@ -101,6 +119,61 @@ export default function PartyPage() {
     }
     return reasons;
   }, [picking, chosen, roster]);
+
+  useEffect(() => {
+    if (brief.length < 2) {
+      setCombatAnswer(null);
+      setCombatStatus("idle");
+      return;
+    }
+    const cached = readCombatCache(briefKey);
+    if (cached) {
+      setCombatAnswer({ key: briefKey, steps: cached.steps, note: cached.note, sources: cached.sources });
+      setCombatStatus("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setCombatStatus("loading");
+    setCombatAnswer(null);
+    const timer = window.setTimeout(() => {
+      void fetch("/api/party-combat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ members: brief }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          return response.json() as Promise<{ steps?: CombatStep[]; note?: string; sources?: string[] }>;
+        })
+        .then((body) => {
+          if (controller.signal.aborted || !Array.isArray(body.steps) || body.steps.length < 2) {
+            if (!controller.signal.aborted) setCombatStatus("error");
+            return;
+          }
+          const sources = Array.isArray(body.sources)
+            ? body.sources.filter((source): source is string => typeof source === "string" && source.startsWith("https://")).slice(0, 4)
+            : [];
+          const answer = { steps: body.steps, note: typeof body.note === "string" ? body.note : "", sources };
+          writeCombatCache(briefKey, answer);
+          setCombatAnswer({ key: briefKey, ...answer });
+          setCombatStatus("idle");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setCombatStatus("error");
+        });
+    }, 450);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [brief, briefKey, combatAttempt]);
+
+  function retryCombat() {
+    clearCombatCache(briefKey);
+    setCombatAnswer(null);
+    setCombatAttempt((value) => value + 1);
+  }
 
   function replaceParty(nextParty: NonNullable<typeof party>) {
     if (!file) return;
@@ -131,6 +204,20 @@ export default function PartyPage() {
   }
   if (!file || !party || loadedFor !== active.id) return null;
 
+  const liveCombat = combatAnswer?.key === briefKey ? combatAnswer : null;
+  const filledCount = slots.filter((id) => id != null).length;
+  const combatMessage =
+    filledCount === 0
+      ? "캐릭터를 넣으면 누가 먼저 장판을 깔지 여기에 나옵니다."
+      : brief.length === 0 && loading
+        ? "캐릭터 정보를 불러오는 중"
+        : brief.length < 2
+          ? "한 명 더 넣으면 장판을 먼저 깔고 들어가는 순서를 정리합니다."
+          : liveCombat
+            ? ""
+            : combatStatus === "error"
+              ? "순서를 불러오지 못했습니다."
+              : "캐릭터와 스탯을 보고 순서를 정리하는 중";
   const atLimit = file.parties.length >= PARTY_LIMIT;
 
   return (
@@ -241,13 +328,18 @@ export default function PartyPage() {
             ))}
           </ul>
         )}
-        <h3 className="mt-4 font-display text-lg font-semibold">전투 운용</h3>
-        {steps.length === 0 && (
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">캐릭터를 넣으면 누가 먼저 스킬을 쓰는지 여기에 나옵니다.</p>
-        )}
-        {steps.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <h3 className="font-display text-lg font-semibold">전투 운용</h3>
+          {brief.length >= 2 && combatStatus !== "loading" && (liveCombat || combatStatus === "error") && (
+            <button type="button" className="h-11 shrink-0 rounded-full px-3 text-sm text-primary" onClick={retryCombat}>
+              다시 정리
+            </button>
+          )}
+        </div>
+        {combatMessage && <p className="mt-2 text-sm leading-6 text-muted-foreground">{combatMessage}</p>}
+        {liveCombat && (
           <ol className="mt-2 space-y-2">
-            {steps.map((step, index) => (
+            {liveCombat.steps.map((step, index) => (
               <li key={`${step.title}-${index}`} className="flex gap-3 rounded-2xl bg-secondary/70 px-3 py-3">
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
                   {index + 1}
@@ -260,9 +352,25 @@ export default function PartyPage() {
             ))}
           </ol>
         )}
-        {steps.length > 0 && (
+        {liveCombat?.note && <p className="mt-2 text-sm leading-6 text-muted-foreground">{liveCombat.note}</p>}
+        {liveCombat && liveCombat.sources.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {liveCombat.sources.map((href) => (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 items-center rounded-full bg-secondary px-3 text-sm text-primary"
+              >
+                {sourceLabel(href)}
+              </a>
+            ))}
+          </div>
+        )}
+        {liveCombat && (
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
+            캐릭터 조작은 검색해서 확인하고, 지금 스탯에 맞춰 순서를 정했습니다. 한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
           </p>
         )}
         <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
