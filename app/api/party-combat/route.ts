@@ -97,7 +97,7 @@ note: 이 계정 스탯 때문에 순서가 달라지면 한 문장. 없으면 �
 - 역할 힌트보다 무기, 성유물, 스탯, 기준의 준졸업과 졸업을 우선한다. 원소 마스터리나 충전 위주면 서포터로, 공격력과 치명 위주면 딜러로 본다.
 - 충전 효율이 기준보다 낮으면 그 원소폭발은 게이지가 찼을 때만 순서에 넣는다.
 - 프레임 수를 만들지 않는다. 초가 필요한 메커니즘만 적는다.
-- 답을 쓰기 전에 웹 검색으로 스킬 순서, 돌파 분기, 이 조합의 통상 교대와 장비 방향을 확인한다. 검색은 조작과 조합에만 쓰고, 이 계정의 스탯 숫자는 입력을 따른다.
+- web_search는 입력의 캐릭터, 성유물, 무기, 아이템 중에 네가 모르는 이름이 있을 때만 호출한다. 아는 이름은 검색하지 말고 바로 답한다. 모르는 이름만 찾고, 검색은 두 번을 넘기지 않는다. 이 계정의 스탯 숫자는 검색하지 않는다. 검색 결과와 아래 규칙이 다르면 아래 규칙을 따른다.
 - 아를레키노의 원소전투는 짧게 누른다. 2돌 미만이면 원소전투 뒤 약 5초 동안 다른 캐릭터가 장판을 깔고, 그 다음 강공격으로 돌아온다. 2돌 이상이면 장판을 먼저 깐 뒤 원소전투 직후 강공격을 넣는다.
 - 종려와 카즈하의 원소전투는 홀드다. 카즈하는 홀드 후 낙하공격이다.
 - 슈브르즈가 있으면 불과 번개만 둔다. 닐루가 있으면 물과 풀만 둔다.
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { output } = await generateText({
+    const { output, steps } = await generateText({
       model: openai("gpt-6-luna"),
       instructions: INSTRUCTIONS,
       prompt: combatBriefText(members),
@@ -151,7 +151,6 @@ export async function POST(request: Request) {
         }),
       },
       prepareStep: ({ stepNumber }) => {
-        if (stepNumber === 0) return { toolChoice: { type: "tool", toolName: "web_search" } };
         if (stepNumber >= 2) return { toolChoice: "none" };
         return { toolChoice: "auto" };
       },
@@ -163,6 +162,8 @@ export async function POST(request: Request) {
         openai: { store: false },
       },
     });
+    const searches = steps.reduce((count, step) => count + step.toolCalls.filter((call) => call.toolName === "web_search").length, 0);
+    console.error("party-combat searches", searches);
     const parsedRaw = parseCombatAnswer(output);
     const parsed = parsedRaw ? keepStarTeam(parsedRaw, members) : null;
     if (!parsed || !answerCoversParty(parsed, members)) {

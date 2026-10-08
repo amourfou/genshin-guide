@@ -124,7 +124,7 @@ function GuideSections({ guide }: { guide: PartyGuide }) {
         </div>
       )}
       <p className="text-xs leading-5 text-muted-foreground">
-        조작과 장비 기준은 검색해서 확인하고, 지금 스탯에 맞춰 정리했습니다. 한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
+        지금 스탯과 정리 규칙에 맞춰 순서를 정했습니다. 모르는 항목만 검색합니다. 한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
       </p>
     </div>
   );
