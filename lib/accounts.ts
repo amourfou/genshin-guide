@@ -11,15 +11,18 @@ export interface AccountStore {
   accounts: GameAccount[];
 }
 
-export const ACCOUNT_KEY = "genshin-accounts-v1";
+export const LEGACY_ACCOUNT_KEY = "genshin-accounts-v1";
+export const LEGACY_OWNER_NAME = "광란의 사랑";
 
 export const EMPTY_STORE: AccountStore = { activeId: null, accounts: [] };
 
-export function readAccountStore(): AccountStore {
-  if (typeof window === "undefined") return EMPTY_STORE;
+function accountStorageKey(userId: string): string {
+  return `genshin-accounts:${userId}`;
+}
+
+function parseStore(raw: string | null): AccountStore {
+  if (!raw) return EMPTY_STORE;
   try {
-    const raw = localStorage.getItem(ACCOUNT_KEY);
-    if (!raw) return EMPTY_STORE;
     const parsed = JSON.parse(raw) as AccountStore;
     if (!parsed || !Array.isArray(parsed.accounts)) return EMPTY_STORE;
     return {
@@ -31,8 +34,33 @@ export function readAccountStore(): AccountStore {
   }
 }
 
-export function writeAccountStore(store: AccountStore): void {
-  localStorage.setItem(ACCOUNT_KEY, JSON.stringify(store));
+export function readAccountStore(userId: string): AccountStore {
+  if (typeof window === "undefined") return EMPTY_STORE;
+  return parseStore(localStorage.getItem(accountStorageKey(userId)));
+}
+
+export function readLegacyAccountStore(): AccountStore {
+  if (typeof window === "undefined") return EMPTY_STORE;
+  return parseStore(localStorage.getItem(LEGACY_ACCOUNT_KEY));
+}
+
+export function clearLegacyAccountStore(): void {
+  localStorage.removeItem(LEGACY_ACCOUNT_KEY);
+}
+
+export function writeAccountStore(userId: string, store: AccountStore): void {
+  localStorage.setItem(accountStorageKey(userId), JSON.stringify(store));
+}
+
+export function mergeAccountStores(primary: AccountStore, extra: AccountStore): AccountStore {
+  const seen = new Set(primary.accounts.map((account) => account.id));
+  const accounts = [...primary.accounts];
+  for (const account of extra.accounts) {
+    if (seen.has(account.id)) continue;
+    seen.add(account.id);
+    accounts.push(account);
+  }
+  return { activeId: primary.activeId ?? extra.activeId ?? accounts[0]?.id ?? null, accounts };
 }
 
 export function maskCookie(cookie: string): string {

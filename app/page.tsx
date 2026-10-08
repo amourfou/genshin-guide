@@ -17,8 +17,8 @@ export default function HomePage() {
       <section className="rounded-3xl border border-border bg-card p-5">
         <p className="font-display text-2xl font-semibold leading-tight text-primary">내 빌드를 이 핸드폰에서</p>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          UID만 넣으면 프로필에 전시한 캐릭터의 스탯·무기·성유물을 봅니다. 호요랩 쿠키를 저장하면
-          보유 캐릭터 전체와 나선·환상극 파티까지 가져옵니다. 저장한 계정은 다른 기기에서도 열립니다.
+          로그인한 이름에 UID를 등록합니다. UID만 넣으면 전시한 캐릭터를 보고, 호요랩 쿠키를 넣으면
+          보유 캐릭터 전체와 나선·환상극 파티까지 가져옵니다.
         </p>
         <Link
           href="/accounts"

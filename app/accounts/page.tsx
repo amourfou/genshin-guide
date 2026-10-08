@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAccounts } from "@/components/AccountProvider";
+import { useSession } from "@/components/SessionProvider";
 import { maskCookie } from "@/lib/accounts";
 import { cleanUid, isUid, serverLabel } from "@/lib/uid";
 
@@ -13,6 +14,7 @@ interface FoundRole {
 }
 
 export default function AccountsPage() {
+  const { user, logout } = useSession();
   const { ready, cloud, accounts, active, save, activate, remove } = useAccounts();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -87,18 +89,20 @@ export default function AccountsPage() {
       <section>
         <h1 className="font-display text-2xl font-semibold">계정</h1>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          {cloud === "off"
-            ? "여러 UID를 이 브라우저에 저장하고 전환합니다. 데이터베이스 주소가 없으면 다른 기기와는 맞추지 않습니다."
-            : "여러 UID를 저장하고 전환합니다. UID와 쿠키는 데이터베이스에 두어 다른 기기에서도 바로 열리게 합니다. 파티 구성은 각 기기에 남습니다."}
+          {user ? `${user.name} 계정에 UID와 쿠키를 등록합니다. ` : ""}
+          같은 이름으로 들어가면 다른 기기에서도 이 목록이 열립니다. 파티 구성은 각 기기에 남습니다.
         </p>
+        <button type="button" className="mt-3 h-11 rounded-full border border-border px-4 text-sm" onClick={logout}>
+          나가기
+        </button>
         {cloud === "missing" && (
           <p className="mt-2 text-sm leading-6 text-destructive">
-            계정 표가 아직 없습니다. Supabase SQL Editor에서 supabase-schema.sql을 실행하면 다른 기기와 맞춰집니다.
+            계정을 불러오지 못했습니다.
           </p>
         )}
         {cloud === "error" && (
           <p className="mt-2 text-sm leading-6 text-destructive">
-            데이터베이스에 저장하지 못했습니다. 이 브라우저에는 남아 있습니다.
+            저장하지 못했습니다. 이 브라우저에는 남아 있습니다.
           </p>
         )}
       </section>

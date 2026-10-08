@@ -1,6 +1,6 @@
 # Supabase 설정
 
-WordCatch와 같은 Supabase 프로젝트를 씁니다. 공유 `users` 테이블은 이 앱에서 쓰지 않습니다.
+WordCatch와 같은 Supabase 프로젝트를 씁니다. 처음 화면은 공유 `users` 표의 이름으로 로그인합니다. UID와 쿠키는 그 사용자에게 매입니다.
 
 ## 테이블
 

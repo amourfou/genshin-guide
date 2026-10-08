@@ -35,9 +35,10 @@ create policy "public read genshin guides"
 -- [{"pieces":4,"aliases":["절연","emblem"]}]
 -- sands/goblet/circlet 값: hp hp_ atk atk_ def def_ em er cr cd heal pyro hydro electro cryo anemo geo dendro physical
 
--- UID와 호요랩 쿠키. 같은 표를 읽는 기기는 계정을 그대로 엽니다.
+-- UID와 호요랩 쿠키는 users.id 에 연결됩니다.
 create table if not exists public.genshin_accounts (
   id uuid primary key,
+  user_id uuid references public.users(id) on delete cascade,
   label text not null,
   uid text not null,
   cookie text not null default '',
@@ -46,8 +47,25 @@ create table if not exists public.genshin_accounts (
   updated_at timestamptz not null default now()
 );
 
+alter table public.genshin_accounts
+  add column if not exists user_id uuid references public.users(id) on delete cascade;
+
+-- 이미 저장돼 있던 UID와 쿠키는 광란의 사랑 계정으로 붙입니다.
+update public.genshin_accounts
+set user_id = (select id from public.users where name = '광란의 사랑')
+where user_id is null
+  and exists (select 1 from public.users where name = '광란의 사랑');
+
+do $$
+begin
+  if not exists (select 1 from public.genshin_accounts where user_id is null) then
+    alter table public.genshin_accounts alter column user_id set not null;
+  end if;
+end $$;
+
+drop index if exists genshin_accounts_one_active;
 create unique index if not exists genshin_accounts_one_active
-  on public.genshin_accounts (active)
+  on public.genshin_accounts (user_id)
   where active;
 
 alter table public.genshin_accounts enable row level security;

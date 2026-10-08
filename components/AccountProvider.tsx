@@ -11,12 +11,17 @@ import {
 } from "react";
 import {
   EMPTY_STORE,
+  LEGACY_OWNER_NAME,
+  clearLegacyAccountStore,
+  mergeAccountStores,
   readAccountStore,
+  readLegacyAccountStore,
   writeAccountStore,
   type AccountStore,
   type GameAccount,
 } from "@/lib/accounts";
-import { fetchAccountStore, saveAccountStore, type AccountCloud } from "@/lib/accountSync";
+import { fetchAccountStore, fetchExistingAccountIds, saveAccountStore, type AccountCloud } from "@/lib/accountSync";
+import { useSession } from "@/components/SessionProvider";
 
 interface AccountContextValue {
   ready: boolean;
@@ -31,62 +36,90 @@ interface AccountContextValue {
 const AccountContext = createContext<AccountContextValue | null>(null);
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
+  const { ready: sessionReady, user } = useSession();
   const [store, setStore] = useState<AccountStore>(EMPTY_STORE);
   const [ready, setReady] = useState(false);
   const [cloud, setCloud] = useState<AccountCloud | "checking">("checking");
   const edited = useRef(false);
   const queue = useRef(Promise.resolve());
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = user?.id ?? null;
 
   const enqueue = useCallback((next: AccountStore) => {
+    const userId = userIdRef.current;
+    if (!userId) return;
     queue.current = queue.current
-      .then(() => saveAccountStore(next))
+      .then(() => saveAccountStore(userId, next))
       .then((result) => setCloud(result))
       .catch(() => setCloud("error"));
   }, []);
 
-  const uploadLocalIfUntouched = useCallback((local: AccountStore) => {
-    queue.current = queue.current
-      .then(async () => {
-        if (edited.current) return;
-        const result = await saveAccountStore(local);
-        if (!edited.current) setCloud(result);
-      })
-      .catch(() => {
-        if (!edited.current) setCloud("error");
-      });
-  }, []);
-
   useEffect(() => {
-    const local = readAccountStore();
+    edited.current = false;
+    if (!sessionReady) return;
+    if (!user) {
+      setStore(EMPTY_STORE);
+      setCloud("off");
+      setReady(true);
+      return;
+    }
+
+    const userId = user.id;
+    const legacy = user.name === LEGACY_OWNER_NAME ? readLegacyAccountStore() : EMPTY_STORE;
+    const local = mergeAccountStores(readAccountStore(userId), legacy);
     setStore(local);
     setReady(true);
     let cancel = false;
+
     void (async () => {
-      const remote = await fetchAccountStore();
+      const remote = await fetchAccountStore(userId);
       if (cancel || edited.current) return;
       if (remote.status !== "ok") {
         setCloud(remote.status);
         return;
       }
-      if (remote.store.accounts.length === 0) {
-        setCloud("ok");
-        if (local.accounts.length > 0) uploadLocalIfUntouched(local);
+      const known = await fetchExistingAccountIds(legacy.accounts.map((account) => account.id));
+      if (cancel || edited.current) return;
+      if (legacy.accounts.length > 0 && known.status !== "ok") {
+        setStore(remote.store);
+        writeAccountStore(userId, remote.store);
+        setCloud(known.status);
         return;
       }
-      setStore(remote.store);
-      writeAccountStore(remote.store);
+      const knownIds = new Set(known.status === "ok" ? known.ids : []);
+      const claimable = legacy.accounts.filter((account) => !knownIds.has(account.id));
+      const merged = mergeAccountStores(remote.store, { activeId: null, accounts: claimable });
+      if (edited.current) return;
+      setStore(merged);
+      writeAccountStore(userId, merged);
       setCloud("ok");
+      if (claimable.length > 0) {
+        queue.current = queue.current
+          .then(() => saveAccountStore(userId, merged))
+          .then((result) => {
+            if (!edited.current) setCloud(result);
+            if (result === "ok") clearLegacyAccountStore();
+          })
+          .catch(() => {
+            if (!edited.current) setCloud("error");
+          });
+        return;
+      }
+      if (legacy.accounts.length > 0) clearLegacyAccountStore();
     })();
+
     return () => {
       cancel = true;
     };
-  }, [uploadLocalIfUntouched]);
+  }, [sessionReady, user]);
 
   const commit = useCallback(
     (next: AccountStore) => {
+      const userId = userIdRef.current;
+      if (!userId) return;
       edited.current = true;
       setStore(next);
-      writeAccountStore(next);
+      writeAccountStore(userId, next);
       enqueue(next);
     },
     [enqueue]
@@ -132,8 +165,8 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
 
   const active = store.accounts.find((account) => account.id === store.activeId) ?? null;
   const value = useMemo(
-    () => ({ ready, cloud, accounts: store.accounts, active, save, activate, remove }),
-    [ready, cloud, store.accounts, active, save, activate, remove]
+    () => ({ ready: sessionReady && ready, cloud, accounts: store.accounts, active, save, activate, remove }),
+    [sessionReady, ready, cloud, store.accounts, active, save, activate, remove]
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

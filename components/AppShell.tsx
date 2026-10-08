@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, Home, Moon, Sun, Swords, User, Users } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAccounts } from "@/components/AccountProvider";
+import { LoginScreen } from "@/components/LoginScreen";
 import { useProfile } from "@/components/ProfileProvider";
+import { useSession } from "@/components/SessionProvider";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -18,11 +20,12 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { ready: sessionReady, user, login, logout } = useSession();
   const { accounts, active, activate } = useAccounts();
   const { profile } = useProfile();
   const { resolvedTheme, setTheme } = useTheme();
   const [accountMenu, setAccountMenu] = useState(false);
-  const nickname = profile?.player.nickname || active?.label || "";
+  const nickname = profile?.player.nickname || active?.label || user?.name || "";
 
   useEffect(() => {
     setAccountMenu(false);
@@ -37,14 +40,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [accountMenu]);
 
+  if (!sessionReady) return <div className="min-h-dvh" />;
+  if (!user) return <LoginScreen onLogin={login} />;
+
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col md:border-x md:border-border/70">
       <header className="safe-top safe-x sticky top-0 z-20 flex items-center gap-2 border-b border-border/70 bg-background/85 pb-2 backdrop-blur-md">
         <Link href="/" className="shrink-0">
           <p className="font-display text-lg font-semibold tracking-tight text-primary">원신 가이드</p>
         </Link>
-        {active && (
-          <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
             <button
               type="button"
               className="relative z-30 ml-auto flex min-h-11 min-w-0 max-w-full items-center gap-1 py-1 text-right"
@@ -54,7 +59,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <span className="min-w-0 leading-tight">
                 <span className="block truncate text-sm font-medium">{nickname}</span>
-                <span className="block truncate text-xs text-muted-foreground">UID {active.uid}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {active ? `UID ${active.uid}` : user.name}
+                </span>
               </span>
               <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground", accountMenu && "rotate-180")} />
             </button>
@@ -67,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className="absolute right-0 top-full z-30 mt-2 w-60 max-w-[min(15rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-card py-1 shadow-lg"
                 >
                   {accounts.map((account) => {
-                    const selected = account.id === active.id;
+                    const selected = account.id === active?.id;
                     const name = selected ? nickname : account.label;
                     return (
                       <li key={account.id}>
@@ -106,10 +113,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </>
             )}
           </div>
-        )}
         <button
           type="button"
-          className="ml-auto grid h-11 w-11 shrink-0 place-items-center rounded-full text-foreground"
+          className="h-11 shrink-0 rounded-full px-3 text-sm text-muted-foreground"
+          onClick={logout}
+        >
+          나가기
+        </button>
+        <button
+          type="button"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-foreground"
           aria-label="테마 전환"
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
