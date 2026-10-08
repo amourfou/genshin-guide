@@ -7,7 +7,6 @@ import { useAccounts } from "@/components/AccountProvider";
 import { GameImage } from "@/components/GameImage";
 import { useProfile } from "@/components/ProfileProvider";
 import { useSession } from "@/components/SessionProvider";
-import type { CombatStep } from "@/lib/combat";
 import {
   blankSlots,
   createParty,
@@ -17,7 +16,7 @@ import {
   resonances,
   type PartyFile,
 } from "@/lib/party";
-import { partyBriefKey, partyCombatBrief } from "@/lib/partyBrief";
+import { parseCombatAnswer, partyBriefKey, partyCombatBrief, type PartyGuide } from "@/lib/partyBrief";
 import { clearCombatCache, readCombatCache, writeCombatCache } from "@/lib/partyCombatCache";
 import { queuePartySave, reconcileParty } from "@/lib/partySync";
 import { readStoredParty, writeStoredParty } from "@/lib/partyStore";
@@ -26,6 +25,124 @@ import type { CharacterBuild } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PARTY_LIMIT = 8;
+
+function GuideSections({ guide }: { guide: PartyGuide }) {
+  return (
+    <div className="mt-3 space-y-4">
+      <section>
+        <h4 className="text-sm font-semibold">부족한 점</h4>
+        <ul className="mt-1 space-y-1">
+          {guide.gaps.map((gap, index) => (
+            <li key={`${gap}-${index}`} className="text-sm leading-6 text-muted-foreground">
+              {gap}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <h4 className="text-sm font-semibold">교체</h4>
+        {guide.swaps.length === 0 ? (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{keptLine(guide)}</p>
+        ) : (
+          <ul className="mt-1 space-y-2">
+            {guide.swaps.map((swap, index) => (
+              <li key={`${swap.out}-${swap.inn}-${index}`} className="rounded-2xl bg-secondary/70 px-3 py-3">
+                <p className="text-sm font-medium leading-6">
+                  {swap.out} → {swap.inn}
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">{swap.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h4 className="text-sm font-semibold">장비</h4>
+        {guide.gear.length === 0 ? (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">지금 장비로 충분합니다.</p>
+        ) : (
+          <ul className="mt-1 space-y-2">
+            {guide.gear.map((item, index) => (
+              <li key={`${item.name}-${item.item}-${index}`} className="rounded-2xl bg-secondary/70 px-3 py-3">
+                <p className="text-sm font-medium leading-6">
+                  {item.name} · {item.item}
+                </p>
+                <p className="text-sm leading-6">
+                  {item.now} → {item.goal}
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">{item.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h4 className="text-sm font-semibold">추천 조합</h4>
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {guide.lineup.map((slot, index) => (
+            <div key={`${slot.name}-${index}`} className="rounded-2xl bg-secondary/70 px-3 py-3">
+              <p className="text-[11px] text-muted-foreground">
+                {index + 1}번{slot.state === "추가" ? " · 추가" : ""}
+              </p>
+              <p className="text-sm font-medium leading-6">{slot.name}</p>
+              <p className="text-[11px] text-muted-foreground">{slot.role}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section>
+        <h4 className="text-sm font-semibold">전투 운용</h4>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">추천 조합의 버튼 순서입니다.</p>
+        <ol className="mt-2 space-y-2">
+          {guide.steps.map((step, index) => (
+            <li key={`${step.title}-${index}`} className="flex gap-3 rounded-2xl bg-secondary/70 px-3 py-3">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                {index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium leading-6">{step.title}</span>
+                <span className="mt-0.5 block text-sm leading-6 text-muted-foreground">{step.detail}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      {guide.note && <p className="text-sm leading-6 text-muted-foreground">{guide.note}</p>}
+      {guide.sources.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {guide.sources.map((href) => (
+            <a
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-11 items-center rounded-full bg-secondary px-3 text-sm text-primary"
+            >
+              {sourceLabel(href)}
+            </a>
+          ))}
+        </div>
+      )}
+      <p className="text-xs leading-5 text-muted-foreground">
+        조작과 장비 기준은 검색해서 확인하고, 지금 스탯에 맞춰 정리했습니다. 한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
+      </p>
+    </div>
+  );
+}
+
+function keptLine(guide: PartyGuide): string {
+  const names = guide.lineup.filter((slot) => slot.state === "추가").map((slot) => slot.name);
+  if (names.length === 0) return "지금 멤버를 유지합니다.";
+  const last = names[names.length - 1];
+  const list = names.length === 1 ? last : `${names.slice(0, -1).join(", ")}, ${last}`;
+  return `${list}${objectParticle(last)} 추천 조합에 더합니다.`;
+}
+
+function objectParticle(name: string): string {
+  const code = name.charCodeAt(name.length - 1);
+  if (code < 0xac00 || code > 0xd7a3) return "을";
+  return (code - 0xac00) % 28 === 0 ? "를" : "을";
+}
 
 function sourceLabel(href: string): string {
   try {
@@ -49,7 +166,7 @@ export default function PartyPage() {
   const [pickQuery, setPickQuery] = useState("");
   const [combatAttempt, setCombatAttempt] = useState(0);
   const [combatStatus, setCombatStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [combatAnswer, setCombatAnswer] = useState<{ key: string; steps: CombatStep[]; note: string; sources: string[] } | null>(null);
+  const [combatAnswer, setCombatAnswer] = useState<(PartyGuide & { key: string }) | null>(null);
   const edited = useRef(false);
 
   const activeId = active?.id ?? null;
@@ -128,7 +245,7 @@ export default function PartyPage() {
     }
     const cached = readCombatCache(briefKey);
     if (cached) {
-      setCombatAnswer({ key: briefKey, steps: cached.steps, note: cached.note, sources: cached.sources });
+      setCombatAnswer({ key: briefKey, ...cached });
       setCombatStatus("idle");
       return;
     }
@@ -144,19 +261,25 @@ export default function PartyPage() {
       })
         .then(async (response) => {
           if (!response.ok) throw new Error(String(response.status));
-          return response.json() as Promise<{ steps?: CombatStep[]; note?: string; sources?: string[] }>;
+          return response.json() as Promise<unknown>;
         })
         .then((body) => {
-          if (controller.signal.aborted || !Array.isArray(body.steps) || body.steps.length < 2) {
+          const guide = parseCombatAnswer(body);
+          if (controller.signal.aborted || !guide) {
             if (!controller.signal.aborted) setCombatStatus("error");
             return;
           }
-          const sources = Array.isArray(body.sources)
-            ? body.sources.filter((source): source is string => typeof source === "string" && source.startsWith("https://")).slice(0, 4)
-            : [];
-          const answer = { steps: body.steps, note: typeof body.note === "string" ? body.note : "", sources };
-          writeCombatCache(briefKey, answer);
-          setCombatAnswer({ key: briefKey, ...answer });
+          const rawSources = body && typeof body === "object" ? (body as { sources?: unknown }).sources : undefined;
+          if (Array.isArray(rawSources)) {
+            for (const source of rawSources) {
+              if (guide.sources.length >= 4) break;
+              if (typeof source === "string" && source.startsWith("https://") && !guide.sources.includes(source)) {
+                guide.sources.push(source);
+              }
+            }
+          }
+          writeCombatCache(briefKey, guide);
+          setCombatAnswer({ key: briefKey, ...guide });
           setCombatStatus("idle");
         })
         .catch(() => {
@@ -208,16 +331,16 @@ export default function PartyPage() {
   const filledCount = slots.filter((id) => id != null).length;
   const combatMessage =
     filledCount === 0
-      ? "캐릭터를 넣으면 누가 먼저 장판을 깔지 여기에 나옵니다."
+      ? "캐릭터를 넣으면 부족한 점과 버튼 순서가 여기에 나옵니다."
       : brief.length === 0 && loading
         ? "캐릭터 정보를 불러오는 중"
         : brief.length < 2
-          ? "한 명 더 넣으면 장판을 먼저 깔고 들어가는 순서를 정리합니다."
+          ? "한 명 더 넣으면 조합과 버튼 순서를 정리합니다."
           : liveCombat
             ? ""
             : combatStatus === "error"
-              ? "순서를 불러오지 못했습니다."
-              : "캐릭터와 스탯을 보고 순서를 정리하는 중";
+              ? "정리를 불러오지 못했습니다."
+              : "캐릭터와 스탯을 보고 파티를 정리하는 중";
   const atLimit = file.parties.length >= PARTY_LIMIT;
 
   return (
@@ -329,7 +452,7 @@ export default function PartyPage() {
           </ul>
         )}
         <div className="mt-4 flex items-center justify-between gap-3">
-          <h3 className="font-display text-lg font-semibold">전투 운용</h3>
+          <h3 className="font-display text-lg font-semibold">파티 정리</h3>
           {brief.length >= 2 && combatStatus !== "loading" && (liveCombat || combatStatus === "error") && (
             <button type="button" className="h-11 shrink-0 rounded-full px-3 text-sm text-primary" onClick={retryCombat}>
               다시 정리
@@ -337,42 +460,7 @@ export default function PartyPage() {
           )}
         </div>
         {combatMessage && <p className="mt-2 text-sm leading-6 text-muted-foreground">{combatMessage}</p>}
-        {liveCombat && (
-          <ol className="mt-2 space-y-2">
-            {liveCombat.steps.map((step, index) => (
-              <li key={`${step.title}-${index}`} className="flex gap-3 rounded-2xl bg-secondary/70 px-3 py-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-                  {index + 1}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium leading-6">{step.title}</span>
-                  <span className="mt-0.5 block text-sm leading-6 text-muted-foreground">{step.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-        {liveCombat?.note && <p className="mt-2 text-sm leading-6 text-muted-foreground">{liveCombat.note}</p>}
-        {liveCombat && liveCombat.sources.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {liveCombat.sources.map((href) => (
-              <a
-                key={href}
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-11 items-center rounded-full bg-secondary px-3 text-sm text-primary"
-              >
-                {sourceLabel(href)}
-              </a>
-            ))}
-          </div>
-        )}
-        {liveCombat && (
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            캐릭터 조작은 검색해서 확인하고, 지금 스탯에 맞춰 순서를 정했습니다. 한 바퀴가 끝나면 같은 순서로 다시 돌립니다. 쿨다운과 적 수에 따라 원소폭발은 빼도 됩니다.
-          </p>
-        )}
+        {liveCombat && <GuideSections guide={liveCombat} />}
         <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
           {notes.map((note) => (
             <li key={note.title}>

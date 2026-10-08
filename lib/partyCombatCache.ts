@@ -1,13 +1,9 @@
-import type { CombatStep } from "@/lib/combat";
+import { parseCombatAnswer, type PartyGuide } from "@/lib/partyBrief";
 
 const CACHE_KEY = "genshin-combat-cache";
 const CACHE_LIMIT = 24;
 
-export interface CachedCombat {
-  steps: CombatStep[];
-  note: string;
-  sources: string[];
-}
+export type CachedCombat = PartyGuide;
 
 export function readCombatCache(key: string): CachedCombat | null {
   const store = readStore();
@@ -38,20 +34,13 @@ function readStore(): Record<string, CachedCombat> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const store: Record<string, CachedCombat> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      const entry = value as { steps?: unknown; note?: unknown; sources?: unknown };
-      if (!Array.isArray(entry.steps)) continue;
-      const steps = entry.steps.flatMap((step) => {
-        if (!step || typeof step !== "object") return [];
-        const title = (step as { title?: unknown }).title;
-        const detail = (step as { detail?: unknown }).detail;
-        if (typeof title !== "string" || typeof detail !== "string") return [];
-        return [{ title, detail }];
-      });
-      if (steps.length < 2) continue;
-      const sources = Array.isArray(entry.sources)
-        ? entry.sources.filter((source): source is string => typeof source === "string" && source.startsWith("https://")).slice(0, 4)
+      const guide = parseCombatAnswer(value);
+      if (!guide) continue;
+      const rawSources = (value as { sources?: unknown }).sources;
+      guide.sources = Array.isArray(rawSources)
+        ? rawSources.filter((source): source is string => typeof source === "string" && source.startsWith("https://")).slice(0, 4)
         : [];
-      store[key] = { steps, note: typeof entry.note === "string" ? entry.note : "", sources };
+      store[key] = guide;
     }
     return store;
   } catch {

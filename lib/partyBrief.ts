@@ -1,4 +1,5 @@
 import type { CombatStep } from "@/lib/combat";
+import { graduationMarks } from "@/lib/graduation";
 import { ELEMENT_LABEL, STAT_LABEL, formatStat } from "@/lib/stats";
 import type { ArtifactInfo, CharacterBuild, CombatStats, StatKey } from "@/lib/types";
 
@@ -12,6 +13,37 @@ export interface PartyCombatMember {
   weapon: string;
   artifacts: string;
   stats: string;
+  targets: string;
+}
+
+export interface PartyGuideSwap {
+  out: string;
+  inn: string;
+  reason: string;
+}
+
+export interface PartyGuideGear {
+  name: string;
+  item: string;
+  now: string;
+  goal: string;
+  reason: string;
+}
+
+export interface PartyGuideSlot {
+  name: string;
+  role: string;
+  state: "유지" | "추가";
+}
+
+export interface PartyGuide {
+  gaps: string[];
+  swaps: PartyGuideSwap[];
+  gear: PartyGuideGear[];
+  lineup: PartyGuideSlot[];
+  steps: CombatStep[];
+  note: string;
+  sources: string[];
 }
 
 const PIECE_LABEL: Record<"sands" | "goblet" | "circlet", string> = {
@@ -44,6 +76,7 @@ export function combatBriefText(members: PartyCombatMember[]): string {
         `무기 ${member.weapon}`,
         `성유물 ${member.artifacts}`,
         `스탯 ${member.stats}`,
+        `기준 ${member.targets}`,
       ].join("\n")
     )
     .join("\n\n");
@@ -52,20 +85,63 @@ export function combatBriefText(members: PartyCombatMember[]): string {
 const MARKDOWN_LINK = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
 const BARE_URL = /https?:\/\/[^\s)]+/g;
 
-export function parseCombatAnswer(value: unknown): { steps: CombatStep[]; note: string; sources: string[] } | null {
+export function parseCombatAnswer(value: unknown): PartyGuide | null {
   if (!value || typeof value !== "object") return null;
-  const record = value as { steps?: unknown; note?: unknown };
-  if (!Array.isArray(record.steps)) return null;
+  const record = value as Record<string, unknown>;
   const sources: string[] = [];
-  const steps = record.steps.flatMap((step) => {
-    if (!step || typeof step !== "object") return [];
-    const title = clip(stripSources((step as { title?: unknown }).title, sources), 80);
-    const detail = clip(stripSources((step as { detail?: unknown }).detail, sources), 220);
-    if (!title || !detail) return [];
-    return [{ title, detail }];
+  const gaps = strings(record.gaps, 4, 110, sources);
+  const swaps = rows(record.swaps, 3, (row) => {
+    const out = field(row, "out", 24, sources);
+    const inn = field(row, "inn", 24, sources);
+    const reason = field(row, "reason", 110, sources);
+    if (!out || !inn || !reason) return null;
+    return { out, inn, reason };
   });
-  if (steps.length < 2 || steps.length > 8) return null;
-  return { steps, note: clip(stripSources(record.note, sources), 180), sources };
+  const gear = rows(record.gear, 6, (row) => {
+    const name = field(row, "name", 24, sources);
+    const item = field(row, "item", 24, sources);
+    const now = field(row, "now", 28, sources);
+    const goal = field(row, "goal", 32, sources);
+    const reason = field(row, "reason", 90, sources);
+    if (!name || !item || !now || !goal || !reason) return null;
+    return { name, item, now, goal, reason };
+  });
+  const lineup = rows(record.lineup, 4, (row) => {
+    const name = field(row, "name", 24, sources);
+    const role = field(row, "role", 36, sources);
+    if (!name || !role) return null;
+    const state = field(row, "state", 8, sources) === "유지" ? "유지" : "추가";
+    return { name, role, state } as PartyGuideSlot;
+  });
+  const steps = rows(record.steps, 8, (row) => {
+    const title = field(row, "title", 56, sources);
+    const detail = field(row, "detail", 140, sources);
+    if (!title || !detail) return null;
+    return { title, detail };
+  });
+  if (gaps.length < 1 || lineup.length < 2 || steps.length < 2) return null;
+  return { gaps, swaps, gear, lineup, steps, note: field(record, "note", 140, sources), sources };
+}
+
+function strings(value: unknown, max: number, length: number, sources: string[]): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, max)
+    .map((item) => clip(stripSources(item, sources), length))
+    .filter((item) => item.length > 0);
+}
+
+function rows<T>(value: unknown, max: number, map: (row: Record<string, unknown>) => T | null): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, max).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const mapped = map(item as Record<string, unknown>);
+    return mapped ? [mapped] : [];
+  });
+}
+
+function field(row: Record<string, unknown>, key: string, max: number, sources: string[]): string {
+  return clip(stripSources(row[key], sources), max);
 }
 
 function stripSources(value: unknown, sources: string[]): string {
@@ -107,9 +183,17 @@ function cleanSourceUrl(raw: string): string {
   }
 }
 
-export function answerMentionsParty(steps: CombatStep[], members: PartyCombatMember[]): boolean {
-  const text = steps.map((step) => `${step.title} ${step.detail}`).join(" ");
-  return members.every((member) => text.includes(member.name));
+export function answerCoversParty(guide: PartyGuide, members: PartyCombatMember[]): boolean {
+  const text = [
+    ...guide.gaps,
+    ...guide.swaps.flatMap((swap) => [swap.out, swap.inn, swap.reason]),
+    ...guide.gear.flatMap((item) => [item.name, item.item, item.now, item.goal, item.reason]),
+    ...guide.lineup.map((slot) => slot.name),
+    ...guide.steps.flatMap((step) => [step.title, step.detail]),
+    guide.note,
+  ].join(" ");
+  const presses = guide.steps.map((step) => `${step.title} ${step.detail}`).join(" ");
+  return members.every((member) => text.includes(member.name)) && guide.lineup.every((slot) => presses.includes(slot.name));
 }
 
 function briefOf(member: CharacterBuild): PartyCombatMember {
@@ -127,6 +211,7 @@ function briefOf(member: CharacterBuild): PartyCombatMember {
       : "무기 정보 없음",
     artifacts: artifactText(member.artifacts),
     stats: member.stats ? statText(member.stats) : "스탯 없음",
+    targets: member.stats ? targetText(member.id, member.stats) : "기준 없음",
   };
 }
 
@@ -144,6 +229,15 @@ function artifactText(artifacts: ArtifactInfo[]): string {
     return [`${PIECE_LABEL[piece.slot]} ${main}`];
   });
   return [...sets, ...mains].join(", ");
+}
+
+function targetText(id: number, stats: CombatStats): string {
+  return graduationMarks(id, stats)
+    .map((mark) => {
+      const state = mark.status === "grad" ? "졸업" : mark.status === "semi" ? "준졸업" : "미달";
+      return `${STAT_LABEL[mark.key]} 준졸업 ${formatStat(mark.key, mark.semi)} 졸업 ${formatStat(mark.key, mark.grad)} ${state}`;
+    })
+    .join(", ");
 }
 
 function statText(stats: CombatStats): string {
