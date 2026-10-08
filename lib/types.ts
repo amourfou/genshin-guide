@@ -140,6 +140,12 @@ export interface PlayerSummary {
   server: string;
 }
 
+/** Whether the full HoYoLAB roster came back, and why not. */
+export interface HoyolabState {
+  status: "ok" | "no-cookie" | "error";
+  message: string;
+}
+
 export interface ProfilePayload {
   uid: string;
   player: PlayerSummary;
@@ -150,6 +156,7 @@ export interface ProfilePayload {
   fetchedAt: string;
   usedHoyolab: boolean;
   usedEnka: boolean;
+  hoyolab?: HoyolabState;
 }
 
 export interface GuideSetOption {

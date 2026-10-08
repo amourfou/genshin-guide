@@ -4,6 +4,7 @@ import { fetchEnka } from "@/lib/enka";
 import { fetchHoyolabBundle, HoyolabError, sanitizeCookie } from "@/lib/hoyolab";
 import { buildProfile } from "@/lib/normalize";
 import { loadGuides } from "@/lib/supabase";
+import type { HoyolabState } from "@/lib/types";
 import { isUid } from "@/lib/uid";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
   const warnings: string[] = [];
   let enka: unknown = null;
   let bundle: Awaited<ReturnType<typeof fetchHoyolabBundle>> | null = null;
+  let hoyolab: HoyolabState = { status: "no-cookie", message: "저장된 호요랩 쿠키가 없습니다." };
 
   try {
     enka = await fetchEnka(uid);
@@ -61,8 +63,12 @@ export async function POST(request: Request) {
   if (cookie) {
     try {
       bundle = await fetchHoyolabBundle(uid, cookie);
+      hoyolab = { status: "ok", message: "" };
     } catch (error) {
-      warnings.push(error instanceof HoyolabError ? error.message : "호요랩 조회에 실패했습니다.");
+      const message = error instanceof HoyolabError ? error.message : "호요랩 조회에 실패했습니다.";
+      console.error("profile hoyolab failed", error instanceof HoyolabError ? error.retcode ?? "http" : "unknown", message);
+      hoyolab = { status: "error", message };
+      warnings.push(message);
     }
   } else {
     warnings.push("쿠키가 없으면 프로필에 전시한 캐릭터만 보입니다. 보유 캐릭터 전체와 나선·환상극 파티는 계정 화면에서 쿠키를 저장한 뒤 불러옵니다.");
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
 
   if (!enka && !bundle) {
     return NextResponse.json(
-      { error: warnings[0] ?? "계정 정보를 가져오지 못했습니다.", warnings },
+      { error: warnings[0] ?? "계정 정보를 가져오지 못했습니다.", warnings, hoyolab },
       { status: 502 }
     );
   }
@@ -87,6 +93,7 @@ export async function POST(request: Request) {
     warnings,
     usedHoyolab: Boolean(bundle),
     usedEnka: Boolean(enka),
+    hoyolab,
   });
 
   cache.set(cacheKey, { at: Date.now(), body: profile });

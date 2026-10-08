@@ -24,6 +24,7 @@ import type {
   CombatStats,
   ElementKey,
   GuideTemplate,
+  HoyolabState,
   PartyMember,
   PartySnapshot,
   PlayerSummary,
@@ -610,6 +611,7 @@ export function buildProfile(options: {
   warnings: string[];
   usedHoyolab: boolean;
   usedEnka: boolean;
+  hoyolab: HoyolabState;
 }): ProfilePayload {
   const detail = asRecord(options.hoyoCharacters);
   const propertyMap = asRecord(detail?.property_map) ?? {};
@@ -645,6 +647,7 @@ export function buildProfile(options: {
     fetchedAt: new Date().toISOString(),
     usedHoyolab: options.usedHoyolab,
     usedEnka: options.usedEnka,
+    hoyolab: options.hoyolab,
   };
 }
 
