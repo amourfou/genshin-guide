@@ -1,50 +1,47 @@
-import { supabase } from "@/lib/supabase";
-
-const SESSION_KEY = "genshin-user";
+import { api } from "@/lib/api";
 
 export interface AppUser {
   id: string;
   name: string;
 }
 
-export function readSession(): AppUser | null {
-  if (typeof window === "undefined") return null;
+/** Older builds kept the user here and trusted it without a password. */
+const LEGACY_SESSION_KEY = "genshin-user";
+
+export function clearLegacySession(): void {
+  if (typeof window !== "undefined") localStorage.removeItem(LEGACY_SESSION_KEY);
+}
+
+export function legacySessionName(): string {
+  if (typeof window === "undefined") return "";
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as AppUser;
-    if (!parsed?.id || !parsed?.name) return null;
-    return { id: parsed.id, name: parsed.name };
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_SESSION_KEY) ?? "") as { name?: unknown };
+    return typeof parsed?.name === "string" ? parsed.name : "";
   } catch {
-    return null;
+    return "";
   }
 }
 
-export function writeSession(user: AppUser): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+export async function fetchSession(): Promise<{ user: AppUser | null; error?: string }> {
+  const result = await api<{ user: AppUser | null }>("/api/session");
+  if (result.ok) return { user: result.data.user };
+  if (result.status === 401) return { user: null };
+  return { user: null, error: result.error };
 }
 
-export function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY);
+export type LoginResult =
+  | { ok: true; user: AppUser; created: boolean }
+  | { ok: false; error: string; needsSetup?: boolean };
+
+export async function login(name: string, password: string, setup: boolean): Promise<LoginResult> {
+  const result = await api<{ user: AppUser; created?: boolean }>("/api/session", {
+    method: "POST",
+    body: { name, password, setup },
+  });
+  if (result.ok) return { ok: true, user: result.data.user, created: Boolean(result.data.created) };
+  return { ok: false, error: result.error, needsSetup: result.data?.needsSetup === true };
 }
 
-export async function getUserById(id: string): Promise<{ user: AppUser | null; missing: boolean }> {
-  if (!supabase) return { user: null, missing: false };
-  const { data, error } = await supabase.from("users").select("id, name").eq("id", id).maybeSingle();
-  if (error) return { user: null, missing: false };
-  if (!data?.id || !data?.name) return { user: null, missing: true };
-  return { user: { id: data.id, name: data.name }, missing: false };
-}
-
-export async function loginByName(name: string): Promise<{ user: AppUser | null; error?: string }> {
-  const trimmed = name.trim();
-  if (!trimmed) return { user: null, error: "이름을 입력해 주세요." };
-  if (!supabase) return { user: null, error: "연결하지 못했습니다." };
-
-  const { data, error } = await supabase.from("users").select("id, name").eq("name", trimmed).maybeSingle();
-  if (error) return { user: null, error: "사용자를 확인하지 못했습니다." };
-  if (!data?.id || !data?.name) return { user: null, error: "등록된 이름이 없습니다." };
-
-  await supabase.from("users").update({ updated_at: new Date().toISOString() }).eq("id", data.id);
-  return { user: { id: data.id, name: data.name } };
+export async function logout(): Promise<void> {
+  await api("/api/session", { method: "DELETE" });
 }

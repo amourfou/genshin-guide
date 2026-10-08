@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { fetchRoles, HoyolabError, sanitizeCookie } from "@/lib/hoyolab";
+import { fail } from "@/lib/server/respond";
+import { requireUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  try {
+    await requireUser();
+  } catch (error) {
+    return fail(error);
+  }
   let body: { cookie?: string };
   try {
     body = (await request.json()) as { cookie?: string };

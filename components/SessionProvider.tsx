@@ -1,12 +1,24 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { clearSession, getUserById, loginByName, readSession, writeSession, type AppUser } from "@/lib/session";
+import {
+  clearLegacySession,
+  fetchSession,
+  legacySessionName,
+  login as loginRequest,
+  logout as logoutRequest,
+  type AppUser,
+  type LoginResult,
+} from "@/lib/session";
 
 interface SessionContextValue {
   ready: boolean;
   user: AppUser | null;
-  login: (name: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Shown on the login screen when the server could not check the session. */
+  problem: string;
+  /** Name remembered by an older build, to prefill the login form. */
+  savedName: string;
+  login: (name: string, password: string, setup: boolean) => Promise<LoginResult>;
   logout: () => void;
 }
 
@@ -15,48 +27,43 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [ready, setReady] = useState(false);
+  const [problem, setProblem] = useState("");
+  const [savedName, setSavedName] = useState("");
 
   useEffect(() => {
-    const stored = readSession();
-    if (!stored) {
-      setReady(true);
-      return;
-    }
-    setUser(stored);
-    setReady(true);
     let cancel = false;
-    void (async () => {
-      const found = await getUserById(stored.id);
+    setSavedName(legacySessionName());
+    void fetchSession().then((result) => {
       if (cancel) return;
-      if (found.missing) {
-        clearSession();
-        setUser(null);
-        return;
-      }
-      if (found.user) {
-        writeSession(found.user);
-        setUser(found.user);
-      }
-    })();
+      setUser(result.user);
+      setProblem(result.error ?? "");
+      if (result.user) clearLegacySession();
+      setReady(true);
+    });
     return () => {
       cancel = true;
     };
   }, []);
 
-  const login = useCallback(async (name: string) => {
-    const result = await loginByName(name);
-    if (!result.user) return { ok: false, error: result.error };
-    writeSession(result.user);
-    setUser(result.user);
-    return { ok: true };
+  const login = useCallback(async (name: string, password: string, setup: boolean) => {
+    const result = await loginRequest(name, password, setup);
+    if (result.ok) {
+      clearLegacySession();
+      setProblem("");
+      setUser(result.user);
+    }
+    return result;
   }, []);
 
   const logout = useCallback(() => {
-    clearSession();
     setUser(null);
+    void logoutRequest();
   }, []);
 
-  const value = useMemo(() => ({ ready, user, login, logout }), [ready, user, login, logout]);
+  const value = useMemo(
+    () => ({ ready, user, problem, savedName, login, logout }),
+    [ready, user, problem, savedName, login, logout]
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

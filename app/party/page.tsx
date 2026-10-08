@@ -167,6 +167,7 @@ export default function PartyPage() {
   const [combatAttempt, setCombatAttempt] = useState(0);
   const [combatStatus, setCombatStatus] = useState<"idle" | "loading" | "error">("idle");
   const [combatAnswer, setCombatAnswer] = useState<(PartyGuide & { key: string }) | null>(null);
+  const [saveProblem, setSaveProblem] = useState(false);
   const edited = useRef(false);
 
   const activeId = active?.id ?? null;
@@ -176,10 +177,10 @@ export default function PartyPage() {
     const local = readStoredParty(activeId);
     setFile(local.file);
     setLoadedFor(activeId);
-    const userId = user?.id;
-    if (!userId) return;
+    setSaveProblem(false);
+    if (!user?.id) return;
     let cancel = false;
-    void reconcileParty(userId, activeId).then((next) => {
+    void reconcileParty(activeId).then((next) => {
       if (cancel || edited.current) return;
       setFile(next);
     });
@@ -202,7 +203,8 @@ export default function PartyPage() {
     setFile(next);
     if (!active) return;
     const updatedAt = writeStoredParty(active.id, next);
-    if (user) void queuePartySave(user.id, active.id, next, updatedAt);
+    if (!user) return;
+    void queuePartySave(active.id, next, updatedAt).then((saved) => setSaveProblem(!saved));
   }
 
   const roster = useMemo(() => profile?.characters ?? [], [profile]);
@@ -375,6 +377,11 @@ export default function PartyPage() {
         </div>
       </div>
 
+      {saveProblem && (
+        <p className="rounded-2xl bg-destructive/10 px-3 py-2 text-sm leading-6 text-destructive">
+          파티를 서버에 저장하지 못했습니다. 이 기기에는 남아 있고, 다음에 바꿀 때 다시 저장합니다.
+        </p>
+      )}
       <section className="rounded-3xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
           <input

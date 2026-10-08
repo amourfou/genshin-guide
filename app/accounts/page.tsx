@@ -15,7 +15,7 @@ interface FoundRole {
 
 export default function AccountsPage() {
   const { user, logout } = useSession();
-  const { ready, cloud, accounts, active, save, activate, remove } = useAccounts();
+  const { ready, cloud, problem, accounts, active, save, activate, remove } = useAccounts();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [uid, setUid] = useState("");
@@ -23,6 +23,8 @@ export default function AccountsPage() {
   const [roles, setRoles] = useState<FoundRole[]>([]);
   const [message, setMessage] = useState("");
   const [looking, setLooking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [clearCookie, setClearCookie] = useState(false);
 
   if (!ready) return null;
 
@@ -32,7 +34,8 @@ export default function AccountsPage() {
     setEditingId(id);
     setLabel(account.label);
     setUid(account.uid);
-    setCookie(account.cookie);
+    setCookie("");
+    setClearCookie(false);
     setRoles([]);
     setMessage("");
   }
@@ -42,6 +45,7 @@ export default function AccountsPage() {
     setLabel("");
     setUid("");
     setCookie("");
+    setClearCookie(false);
     setRoles([]);
     setMessage("");
   }
@@ -73,16 +77,38 @@ export default function AccountsPage() {
     }
   }
 
-  function submit() {
+  async function submit() {
     const nextUid = cleanUid(uid);
     if (!isUid(nextUid)) {
       setMessage("UID는 9자리 숫자입니다.");
       return;
     }
-    save({ id: editingId ?? undefined, label, uid: nextUid, cookie });
+    setSaving(true);
+    setMessage("");
+    const result = await save({
+      id: editingId ?? undefined,
+      label,
+      uid: nextUid,
+      cookie: cookie.trim() || undefined,
+      clearCookie: Boolean(editingId) && clearCookie && !cookie.trim(),
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setMessage(`저장하지 못했습니다. ${result.error}`);
+      return;
+    }
     resetForm();
     setMessage("저장했습니다.");
   }
+
+  async function removeAccount(id: string, name: string) {
+    if (!window.confirm(`${name} 계정을 삭제할까요? 그 계정의 파티도 지워집니다.`)) return;
+    if (editingId === id) resetForm();
+    const removed = await remove(id);
+    if (removed) setMessage("삭제했습니다.");
+  }
+
+  const editing = editingId ? accounts.find((item) => item.id === editingId) ?? null : null;
 
   return (
     <div className="space-y-4">
@@ -95,15 +121,8 @@ export default function AccountsPage() {
         <button type="button" className="mt-3 h-11 rounded-full border border-border px-4 text-sm" onClick={logout}>
           나가기
         </button>
-        {cloud === "missing" && (
-          <p className="mt-2 text-sm leading-6 text-destructive">
-            계정을 불러오지 못했습니다.
-          </p>
-        )}
-        {cloud === "error" && (
-          <p className="mt-2 text-sm leading-6 text-destructive">
-            저장하지 못했습니다. 이 브라우저에는 남아 있습니다.
-          </p>
+        {cloud === "error" && problem && (
+          <p className="mt-2 rounded-2xl bg-destructive/10 px-3 py-2 text-sm leading-6 text-destructive">{problem}</p>
         )}
       </section>
 
@@ -123,7 +142,7 @@ export default function AccountsPage() {
               <p className="truncate text-sm text-muted-foreground">
                 UID {account.uid} · {serverLabel(account.uid)}
               </p>
-              <p className="text-xs text-muted-foreground">{maskCookie(account.cookie)}</p>
+              <p className="text-xs text-muted-foreground">{maskCookie(account)}</p>
             </button>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
@@ -136,7 +155,7 @@ export default function AccountsPage() {
               <button
                 type="button"
                 className="h-11 rounded-full border border-border text-sm text-destructive"
-                onClick={() => remove(account.id)}
+                onClick={() => void removeAccount(account.id, account.label)}
               >
                 삭제
               </button>
@@ -178,12 +197,18 @@ export default function AccountsPage() {
             autoCorrect="off"
             spellCheck={false}
             className="mt-1 min-h-32 w-full rounded-2xl border border-input bg-background px-4 py-3 text-base"
-            placeholder="Cookie 한 줄을 그대로 붙여 넣기"
+            placeholder={editing?.hasCookie ? "비워 두면 저장된 쿠키를 그대로 씁니다" : "Cookie 한 줄을 그대로 붙여 넣기"}
           />
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            컴퓨터 호요랩의 Cookie 한 줄을 붙여 넣습니다. 로그인에 쓰는 값이 계정과 함께 저장됩니다.
+            컴퓨터 호요랩의 Cookie 한 줄을 붙여 넣습니다. 로그인에 쓰는 값만 서버에 저장되고, 저장한 뒤에는 이 화면에도 다시 보이지 않습니다.
           </p>
         </label>
+        {editing?.hasCookie && !cookie.trim() && (
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input type="checkbox" checked={clearCookie} onChange={(event) => setClearCookie(event.target.checked)} className="h-5 w-5" />
+            저장된 쿠키 지우기
+          </label>
+        )}
         <div className="grid gap-2">
           <button
             type="button"
@@ -195,10 +220,11 @@ export default function AccountsPage() {
           </button>
           <button
             type="button"
-            onClick={submit}
-            className="h-12 w-full rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+            onClick={() => void submit()}
+            disabled={saving}
+            className="h-12 w-full rounded-full bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
-            저장
+            {saving ? "저장 중" : "저장"}
           </button>
           {editingId && (
             <button type="button" onClick={resetForm} className="h-12 w-full rounded-full text-sm text-muted-foreground">

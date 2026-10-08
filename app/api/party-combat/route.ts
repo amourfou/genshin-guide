@@ -1,6 +1,8 @@
 import { openai } from "@ai-sdk/openai";
 import { generateText, isStepCount, jsonSchema, Output } from "ai";
 import { NextResponse } from "next/server";
+import { fail } from "@/lib/server/respond";
+import { requireUser } from "@/lib/server/session";
 import { answerCoversParty, combatBriefText, keepStarTeam, keepTalentFacts, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
 
 export const dynamic = "force-dynamic";
@@ -112,7 +114,13 @@ export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
-  if (tooMany(clientIp(request))) {
+  let userId: string;
+  try {
+    userId = (await requireUser()).id;
+  } catch (error) {
+    return fail(error);
+  }
+  if (tooMany(userId) || tooMany(clientIp(request))) {
     return NextResponse.json({ error: "failed" }, { status: 429 });
   }
 
