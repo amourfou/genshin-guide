@@ -2,7 +2,8 @@ import "server-only";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
-import { ApiError, dbFailure, requireDb } from "@/lib/server/db";
+import { loadCredential } from "@/lib/server/credentials";
+import { ApiError, requireDb } from "@/lib/server/db";
 
 const COOKIE = "genshin_session";
 const MAX_AGE_S = 60 * 60 * 24 * 180;
@@ -76,13 +77,8 @@ export async function currentUser(): Promise<SessionUser | null> {
   const token = verify(cookies().get(COOKIE)?.value);
   if (!token) return null;
   const db = requireDb();
-  const { data, error } = await db
-    .from("genshin_logins")
-    .select("secret_hash")
-    .eq("user_id", token.u)
-    .maybeSingle();
-  if (error) throw dbFailure(error, "session");
-  if (!data?.secret_hash || passwordFingerprint(data.secret_hash) !== token.p) return null;
+  const cred = await loadCredential(db, token.u);
+  if (!cred || passwordFingerprint(cred.hash) !== token.p) return null;
   return { id: token.u, name: token.n };
 }
 
