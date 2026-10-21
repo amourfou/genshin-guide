@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { GameImage } from "@/components/GameImage";
 import { StatMarks } from "@/components/StatMarks";
+import { CopyJsonButton } from "@/components/CopyJsonButton";
+import { characterJson } from "@/lib/copyExport";
 import { useProfile } from "@/components/ProfileProvider";
 import { graduationMarks } from "@/lib/graduation";
 import { ELEMENT_CLASS, ELEMENT_LABEL, STAT_LABEL } from "@/lib/stats";
@@ -54,8 +56,11 @@ export default function CharacterDetailPage() {
       <BackToList />
       <section className="flex gap-3 rounded-3xl border border-border bg-card p-4">
         <GameImage src={character.icon} alt={character.name} className="h-20 w-20 shrink-0 rounded-2xl bg-secondary" />
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl font-semibold leading-tight">{character.name}</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="font-display text-2xl font-semibold leading-tight">{character.name}</h1>
+            <CopyJsonButton build={() => characterJson(character, profile)} />
+          </div>
           <span className={cn("mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ring-1", ELEMENT_CLASS[character.element])}>
             {ELEMENT_LABEL[character.element]} · {character.weaponType}
           </span>

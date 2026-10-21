@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useAccounts } from "@/components/AccountProvider";
 import { GameImage } from "@/components/GameImage";
+import { CopyJsonButton } from "@/components/CopyJsonButton";
+import { partyJson } from "@/lib/copyExport";
 import { useProfile } from "@/components/ProfileProvider";
 import { useSession } from "@/components/SessionProvider";
 import {
@@ -392,6 +394,16 @@ export default function PartyPage() {
               if (!party.name.trim()) replaceParty({ ...party, name: nextPartyName(file.parties.filter((item) => item.id !== party.id)) });
             }}
             className="h-12 min-w-0 flex-1 rounded-2xl border border-input bg-background px-4 text-base outline-none ring-primary focus:ring-2"
+          />
+          <CopyJsonButton
+            className="h-12 rounded-2xl"
+            build={() =>
+              partyJson(
+                { name: party.name, resonances: notes, notes: { misfits, advice } },
+                chosen,
+                profile
+              )
+            }
           />
           {file.parties.length > 1 && (
             <button
