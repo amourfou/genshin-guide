@@ -166,9 +166,10 @@ export default function PartyPage() {
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
   const [pickQuery, setPickQuery] = useState("");
-  const [combatAttempt, setCombatAttempt] = useState(0);
+  /** n bumps on a button press; force skips the saved answer ("다시 정리"). */
+  const [combatRequest, setCombatRequest] = useState<{ n: number; force: boolean }>({ n: 0, force: false });
   const [combatStatus, setCombatStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [combatAnswer, setCombatAnswer] = useState<(PartyGuide & { key: string }) | null>(null);
+  const [combatAnswer, setCombatAnswer] = useState<(PartyGuide & { key: string; stale?: boolean; savedAt?: string }) | null>(null);
   const [saveProblem, setSaveProblem] = useState(false);
   const edited = useRef(false);
 
@@ -247,59 +248,92 @@ export default function PartyPage() {
       setCombatStatus("idle");
       return;
     }
-    const cached = readCombatCache(briefKey);
-    if (cached) {
-      setCombatAnswer({ key: briefKey, ...cached });
-      setCombatStatus("idle");
-      return;
+    // Wait for the fresh profile, so a cached (older) profile never starts an AI call.
+    if (loading) return;
+    const asked = combatRequest.n > 0;
+    if (!asked) {
+      const cached = readCombatCache(briefKey);
+      if (cached) {
+        setCombatAnswer({ key: briefKey, ...cached });
+        setCombatStatus("idle");
+        return;
+      }
     }
     const controller = new AbortController();
-    setCombatStatus("loading");
-    setCombatAnswer(null);
-    const timer = window.setTimeout(() => {
-      void fetch("/api/party-combat", {
+    const post = (body: Record<string, unknown>) =>
+      fetch("/api/party-combat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ members: brief }),
+        body: JSON.stringify({ members: brief, ...body }),
         signal: controller.signal,
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error(String(response.status));
-          return response.json() as Promise<unknown>;
-        })
-        .then((body) => {
-          const guide = parseCombatAnswer(body);
-          if (controller.signal.aborted || !guide) {
-            if (!controller.signal.aborted) setCombatStatus("error");
-            return;
+      }).then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json() as Promise<unknown>;
+      });
+    const show = (body: unknown) => {
+      const guide = parseCombatAnswer(body);
+      if (!guide) return false;
+      const rawSources = body && typeof body === "object" ? (body as { sources?: unknown }).sources : undefined;
+      if (Array.isArray(rawSources)) {
+        for (const source of rawSources) {
+          if (guide.sources.length >= 4) break;
+          if (typeof source === "string" && source.startsWith("https://") && !guide.sources.includes(source)) {
+            guide.sources.push(source);
           }
-          const rawSources = body && typeof body === "object" ? (body as { sources?: unknown }).sources : undefined;
-          if (Array.isArray(rawSources)) {
-            for (const source of rawSources) {
-              if (guide.sources.length >= 4) break;
-              if (typeof source === "string" && source.startsWith("https://") && !guide.sources.includes(source)) {
-                guide.sources.push(source);
+        }
+      }
+      writeCombatCache(briefKey, guide);
+      setCombatAnswer({ key: briefKey, ...guide });
+      setCombatStatus("idle");
+      return true;
+    };
+    const generate = (force: boolean) => {
+      setCombatStatus("loading");
+      return post({ mode: "generate", force }).then((body) => {
+        if (controller.signal.aborted) return;
+        if (!show(body)) setCombatStatus("error");
+      });
+    };
+
+    const timer = window.setTimeout(() => {
+      const run = asked
+        ? generate(combatRequest.force)
+        : post({ mode: "lookup" })
+            .catch(() => null)
+            .then((body) => {
+              if (controller.signal.aborted) return;
+              const found = (body ?? {}) as { exact?: unknown; previous?: unknown };
+              if (found.exact && show(found.exact)) return;
+              const previous = found.previous ? parseCombatAnswer(found.previous) : null;
+              if (previous) {
+                const savedAt = (found.previous as { savedAt?: unknown }).savedAt;
+                setCombatAnswer({ key: briefKey, ...previous, stale: true, savedAt: typeof savedAt === "string" ? savedAt : undefined });
+                setCombatStatus("idle");
+                return;
               }
-            }
-          }
-          writeCombatCache(briefKey, guide);
-          setCombatAnswer({ key: briefKey, ...guide });
-          setCombatStatus("idle");
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setCombatStatus("error");
-        });
+              return generate(false);
+            });
+      void run.catch(() => {
+        if (!controller.signal.aborted) setCombatStatus("error");
+      });
     }, 450);
     return () => {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [brief, briefKey, combatAttempt]);
+  }, [brief, briefKey, combatRequest, loading]);
 
+  /** "다시 정리": always a new AI answer. */
   function retryCombat() {
     clearCombatCache(briefKey);
     setCombatAnswer(null);
-    setCombatAttempt((value) => value + 1);
+    setCombatRequest((value) => ({ n: value.n + 1, force: true }));
+  }
+
+  /** "새로 정리" on an old answer: saved exact match first, else AI. */
+  function refreshStaleCombat() {
+    setCombatAnswer(null);
+    setCombatRequest((value) => ({ n: value.n + 1, force: false }));
   }
 
   function replaceParty(nextParty: NonNullable<typeof party>) {
@@ -336,7 +370,7 @@ export default function PartyPage() {
   const combatMessage =
     filledCount === 0
       ? "캐릭터를 넣으면 부족한 점과 버튼 순서가 여기에 나옵니다."
-      : brief.length === 0 && loading
+      : (brief.length === 0 || !liveCombat) && loading
         ? "캐릭터 정보를 불러오는 중"
         : brief.length < 2
           ? "한 명 더 넣으면 조합과 버튼 순서를 정리합니다."
@@ -472,13 +506,23 @@ export default function PartyPage() {
         )}
         <div className="mt-4 flex items-center justify-between gap-3">
           <h3 className="font-display text-lg font-semibold">파티 정리</h3>
-          {brief.length >= 2 && combatStatus !== "loading" && (liveCombat || combatStatus === "error") && (
+          {brief.length >= 2 && combatStatus !== "loading" && liveCombat?.stale && (
+            <button type="button" className="h-11 shrink-0 rounded-full px-3 text-sm font-medium text-primary" onClick={refreshStaleCombat}>
+              새로 정리
+            </button>
+          )}
+          {brief.length >= 2 && combatStatus !== "loading" && !liveCombat?.stale && (liveCombat || combatStatus === "error") && (
             <button type="button" className="h-11 shrink-0 rounded-full px-3 text-sm text-primary" onClick={retryCombat}>
               다시 정리
             </button>
           )}
         </div>
         {combatMessage && <p className="mt-2 text-sm leading-6 text-muted-foreground">{combatMessage}</p>}
+        {liveCombat?.stale && (
+          <p className="mt-2 rounded-2xl bg-secondary px-3 py-2 text-sm leading-6 text-secondary-foreground">
+            이전 결과(정보 바뀜){liveCombat.savedAt ? ` · ${new Date(liveCombat.savedAt).toLocaleDateString("ko-KR")}` : ""}. 캐릭터 정보가 바뀌었어요. 최신 정보로 보려면 &apos;새로 정리&apos;를 누르세요.
+          </p>
+        )}
         {liveCombat && <GuideSections guide={liveCombat} />}
         <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
           {notes.map((note) => (

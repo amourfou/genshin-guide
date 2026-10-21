@@ -3,7 +3,18 @@ import { generateText, isStepCount, jsonSchema, Output } from "ai";
 import { NextResponse } from "next/server";
 import { fail } from "@/lib/server/respond";
 import { requireUser } from "@/lib/server/session";
-import { answerCoversParty, combatBriefText, keepStarTeam, keepTalentFacts, parseCombatAnswer, type PartyCombatMember, type PartyGuide } from "@/lib/partyBrief";
+import {
+  answerCoversParty,
+  combatBriefText,
+  keepStarTeam,
+  keepTalentFacts,
+  parseCombatAnswer,
+  partyBriefKey,
+  partyMemberKey,
+  type PartyCombatMember,
+  type PartyGuide,
+} from "@/lib/partyBrief";
+import { loadPartyGuide, savePartyGuide } from "@/lib/server/partyGuides";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -110,18 +121,17 @@ note: 이 계정 스탯 때문에 순서가 달라지면 한 문장. 없으면 �
 - 얼음 여행자가 있으면 얼음 확산은 별확산, 초전도는 별초전도가 된다. 이 효과를 받으려고 넣은 캐릭터를 물이 없다는 이유로 빼지 않는다.
 - 얼음 여행자와 베스나 또는 미즈키가 같이 있으면 별확산 파티다. 얼음을 먼저 묻히고 바람이 확산한 뒤 별확산 딜러가 필드에 남는다. 물은 조건이 아니다. 설탕과 디오나는 맞는 서포터다. 이 네 명을 교체하지 않는다. 검색 결과가 다르면 이 규칙을 따른다.`;
 
+/**
+ * body: { members, mode?: "lookup" | "generate", force?: boolean }
+ * lookup: saved answer only ({ exact, previous }), never calls the AI.
+ * generate: saved exact answer first (unless force), else AI, then best-effort save.
+ */
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "unavailable" }, { status: 503 });
-  }
   let userId: string;
   try {
     userId = (await requireUser()).id;
   } catch (error) {
     return fail(error);
-  }
-  if (tooMany(userId) || tooMany(clientIp(request))) {
-    return NextResponse.json({ error: "failed" }, { status: 429 });
   }
 
   let payload: unknown;
@@ -132,10 +142,33 @@ export async function POST(request: Request) {
   }
   const members = asMembers(payload);
   if (!members) return NextResponse.json({ error: "failed" }, { status: 400 });
+  const options = payload as { mode?: unknown; force?: unknown };
+  const mode = options.mode === "lookup" ? "lookup" : "generate";
+  const force = options.force === true;
 
-  const cacheKey = `3:${JSON.stringify(members)}`;
+  const briefKey = partyBriefKey(members);
+  const memberKey = partyMemberKey(members);
+
+  if (mode === "lookup") {
+    const stored = await loadPartyGuide(userId, memberKey, briefKey);
+    return NextResponse.json({ key: briefKey, ...stored });
+  }
+
+  if (!force) {
+    const stored = await loadPartyGuide(userId, memberKey, briefKey);
+    if (stored.exact) return NextResponse.json(stored.exact);
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json({ error: "unavailable" }, { status: 503 });
+  }
+  if (tooMany(userId) || tooMany(clientIp(request))) {
+    return NextResponse.json({ error: "failed" }, { status: 429 });
+  }
+
+  const cacheKey = `${userId}:${briefKey}`;
   const cached = answers.get(cacheKey);
-  if (cached && Date.now() - cached.at < ANSWER_TTL_MS) {
+  if (!force && cached && Date.now() - cached.at < ANSWER_TTL_MS) {
     return NextResponse.json(cached.body);
   }
 
@@ -179,6 +212,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "failed" }, { status: 502 });
     }
     answers.set(cacheKey, { at: Date.now(), body: parsed });
+    await savePartyGuide(userId, memberKey, briefKey, parsed);
     return NextResponse.json(parsed);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
@@ -198,8 +232,10 @@ function asMembers(value: unknown): PartyCombatMember[] | null {
     const name = clip(item.name, 40);
     const level = num(item.level, 1, 100);
     const constellation = num(item.constellation, 0, 6);
-    if (!name || level == null || constellation == null) return null;
+    const id = num(item.id, 1, 1e12);
+    if (!name || level == null || constellation == null || id == null) return null;
     members.push({
+      id,
       name,
       element: clip(item.element, 8) || "무",
       level,
@@ -210,6 +246,7 @@ function asMembers(value: unknown): PartyCombatMember[] | null {
       artifacts: clip(item.artifacts, 180) || "성유물 없음",
       stats: clip(item.stats, 240) || "스탯 없음",
       targets: clip(item.targets, 320) || "기준 없음",
+      statBand: clip(item.statBand, 200) || "-",
     });
   }
   return members;

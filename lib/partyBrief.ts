@@ -4,6 +4,8 @@ import { ELEMENT_LABEL, STAT_LABEL, formatStat } from "@/lib/stats";
 import type { ArtifactInfo, CharacterBuild, CombatStats, StatKey } from "@/lib/types";
 
 export interface PartyCombatMember {
+  /** Character id. Used for the stable cache key, not shown to the model. */
+  id: number;
   name: string;
   element: string;
   level: number;
@@ -14,6 +16,8 @@ export interface PartyCombatMember {
   artifacts: string;
   stats: string;
   targets: string;
+  /** Rounded stat bands for the cache key, so tiny stat drift does not miss the cache. */
+  statBand: string;
 }
 
 export interface PartyGuideSwap {
@@ -56,14 +60,66 @@ export function partyCombatBrief(members: Array<CharacterBuild | null>): PartyCo
   return members.flatMap((member) => (member ? [briefOf(member)] : []));
 }
 
-export function partyBriefKey(members: PartyCombatMember[]): string {
-  const raw = JSON.stringify(members);
+function fnv(raw: string): string {
   let hash = 2166136261;
   for (let i = 0; i < raw.length; i++) {
     hash ^= raw.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return `3:${(hash >>> 0).toString(16)}:${raw.length}`;
+  return (hash >>> 0).toString(16);
+}
+
+function byId(members: PartyCombatMember[]): PartyCombatMember[] {
+  return [...members].sort((a, b) => a.id - b.id || a.name.localeCompare(b.name));
+}
+
+/** Sorted member ids: the same four people in any slot order. */
+export function partyMemberKey(members: PartyCombatMember[]): string {
+  return byId(members)
+    .map((member) => member.id)
+    .join("-");
+}
+
+/**
+ * Stable cache key. Slot order, role hints, and exact stat decimals are left out;
+ * level, constellation, talents, weapon, artifact sets/mains and stat bands are kept.
+ */
+export function partyBriefKey(members: PartyCombatMember[]): string {
+  const raw = JSON.stringify(
+    byId(members).map((member) => [
+      member.id,
+      member.level,
+      member.constellation,
+      member.talents,
+      member.weapon,
+      member.artifacts,
+      member.statBand,
+    ])
+  );
+  return `4:${fnv(raw)}:${raw.length}`;
+}
+
+function band(value: number, step: number): number {
+  return Math.round(value / step) * step;
+}
+
+/** hp/atk/def to 500, em to 20, percent stats to 5%p. */
+export function statBandText(stats: CombatStats | null): string {
+  if (!stats) return "-";
+  const parts = [
+    `hp${band(stats.hp, 500)}`,
+    `atk${band(stats.atk, 500)}`,
+    `def${band(stats.def, 500)}`,
+    `em${band(stats.em, 20)}`,
+    `er${band(stats.er, 5)}`,
+    `cr${band(stats.cr, 5)}`,
+    `cd${band(stats.cd, 5)}`,
+  ];
+  if (stats.heal > 0) parts.push(`heal${band(stats.heal, 5)}`);
+  for (const [key, value] of Object.entries(stats.dmg).sort(([a], [b]) => a.localeCompare(b))) {
+    if (value) parts.push(`${key}${band(value, 5)}`);
+  }
+  return parts.join(",");
 }
 
 export function combatBriefText(members: PartyCombatMember[]): string {
@@ -311,6 +367,7 @@ export function answerCoversParty(guide: PartyGuide, members: PartyCombatMember[
 
 function briefOf(member: CharacterBuild): PartyCombatMember {
   return {
+    id: member.id,
     name: member.name,
     element: ELEMENT_LABEL[member.element] ?? member.element,
     level: member.level,
@@ -325,6 +382,7 @@ function briefOf(member: CharacterBuild): PartyCombatMember {
     artifacts: artifactText(member.artifacts),
     stats: member.stats ? statText(member.stats) : "스탯 없음",
     targets: member.stats ? targetText(member.id, member.stats) : "기준 없음",
+    statBand: statBandText(member.stats),
   };
 }
 
