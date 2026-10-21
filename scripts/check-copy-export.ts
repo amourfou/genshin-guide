@@ -4,3 +4,12 @@ const input = { uid: "800000000", ltuid_v2: "x", nested: { ltoken: "x", cookie_t
 const out = sanitize(input) as any;
 assert.deepEqual(out, { uid: "800000000", nested: { keep: 1, list: [{ ok: true }] } });
 console.log("copy-export sanitize: ok");
+import { allCharactersJson } from "../lib/copyExport";
+const base: any = { id: 1, name: "A", element: "pyro", weaponType: "sword", rarity: 5, level: 90, friendship: 10, constellation: 2, icon: "", talents: { a: 1 }, stats: { hp: 1 }, weapon: { name: "W", rarity: 5, level: 90, refinement: 1, main: {}, sub: null }, artifacts: [{ slot: "flower", name: "f", setName: "s", rarity: 5, level: 20, main: { key: "hp", value: 1, display: "1" }, subs: [] }], showcase: true, guide: { score: 1, role: "dps", headline: "", checks: [], suggestions: [] } };
+const bare: any = { ...base, id: 2, talents: null, stats: null, weapon: null, artifacts: [], showcase: false };
+const all = JSON.parse(allCharactersJson([base, bare], { uid: "8", player: { nickname: "n", server: "s" }, fetchedAt: "t", cookie: "SECRET" } as any));
+assert.equal(all.count, 2); assert.equal(all.incompleteCount, 1);
+assert.equal(all.characters[0].missing, undefined);
+assert.deepEqual(all.characters[1].missing, ["stats", "weapon", "artifacts", "talents"]);
+assert.ok(!JSON.stringify(all).includes("SECRET"));
+console.log("copy-export all: ok");

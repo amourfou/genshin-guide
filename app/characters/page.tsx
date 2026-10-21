@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAccounts } from "@/components/AccountProvider";
 import { CharacterCard } from "@/components/CharacterCard";
+import { CopyJsonButton } from "@/components/CopyJsonButton";
+import { allCharactersJson } from "@/lib/copyExport";
 import { useProfile } from "@/components/ProfileProvider";
 import { ELEMENT_LABEL } from "@/lib/stats";
 import type { ElementKey, HoyolabState, ProfilePayload } from "@/lib/types";
@@ -75,13 +77,22 @@ export default function CharactersPage() {
 
   return (
     <div className="space-y-3">
-      <div>
+      <div className="flex items-start justify-between gap-2">
+        <div>
         <h1 className="font-display text-2xl font-semibold">캐릭터</h1>
         <p className="text-sm text-muted-foreground">
           {profile ? `${characters.length}명` : "불러오는 중"}
           {profile?.usedHoyolab ? " · 호요랩 명단" : ""}
           {profile?.usedEnka ? " · 전시 스탯" : ""}
         </p>
+        </div>
+        {profile && allCount > 0 && (
+          <CopyJsonButton
+            label="전체 복사"
+            doneLabel={`${allCount}명 복사됨`}
+            build={() => allCharactersJson(profile.characters, profile)}
+          />
+        )}
       </div>
       {profile && (
         <div className="grid grid-cols-2 gap-1 rounded-full bg-secondary p-1" role="tablist" aria-label="보기">

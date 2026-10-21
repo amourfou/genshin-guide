@@ -93,3 +93,28 @@ export function partyJson(
   };
   return JSON.stringify(sanitize(data), null, 2);
 }
+
+/** Which detail sections a character is missing (e.g. no showcase stats). */
+export function missingParts(character: CharacterBuild): string[] {
+  const missing: string[] = [];
+  if (!character.stats) missing.push("stats");
+  if (!character.weapon) missing.push("weapon");
+  if (!character.artifacts || character.artifacts.length === 0) missing.push("artifacts");
+  if (!character.talents) missing.push("talents");
+  return missing;
+}
+
+/** All owned characters in one JSON. Synchronous on purpose (iOS clipboard). */
+export function allCharactersJson(characters: CharacterBuild[], profile?: ProfilePayload | null): string {
+  const list = characters.map((character) => {
+    const missing = missingParts(character);
+    return { ...characterExport(character), ...(missing.length ? { missing } : {}) };
+  });
+  const data = {
+    player: owner(profile),
+    count: list.length,
+    incompleteCount: list.filter((item) => "missing" in item).length,
+    characters: list,
+  };
+  return JSON.stringify(sanitize(data), null, 2);
+}

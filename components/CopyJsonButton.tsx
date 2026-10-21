@@ -34,7 +34,17 @@ function legacyCopy(text: string): boolean {
   }
 }
 
-export function CopyJsonButton({ build, label = "복사", className }: { build: () => string; label?: string; className?: string }) {
+export function CopyJsonButton({
+  build,
+  label = "복사",
+  doneLabel = "복사됨",
+  className,
+}: {
+  build: () => string;
+  label?: string;
+  doneLabel?: string;
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const [manual, setManual] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -84,7 +94,7 @@ export function CopyJsonButton({ build, label = "복사", className }: { build: 
         )}
       >
         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-        {copied ? "복사됨" : label}
+        {copied ? doneLabel : label}
       </button>
       {manual !== null && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true">
