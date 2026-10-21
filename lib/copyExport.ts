@@ -18,6 +18,26 @@ export function sanitize(value: unknown): unknown {
   return value;
 }
 
+const STAT_KEYS = ["hp", "atk", "def", "em", "er", "cr", "cd", "heal"] as const;
+
+function finalStats(stats: CharacterBuild["stats"]) {
+  if (!stats) return null;
+  const out: Record<string, unknown> = {};
+  for (const key of STAT_KEYS) out[key] = stats[key];
+  const dmg: Record<string, number> = {};
+  for (const [key, value] of Object.entries(stats.dmg ?? {})) if (typeof value === "number") dmg[key] = value;
+  out.dmg = dmg;
+  return out;
+}
+
+function statLine(line: { key: string; value: number; display: string }) {
+  return { key: line.key, value: line.value, display: line.display };
+}
+
+/**
+ * Objective facts only, built field by field (whitelist).
+ * No app/AI judgement: no guide, score, role, checks, suggestions or showcase flag.
+ */
 export function characterExport(character: CharacterBuild) {
   return {
     id: character.id,
@@ -27,9 +47,10 @@ export function characterExport(character: CharacterBuild) {
     rarity: character.rarity,
     level: character.level,
     constellation: character.constellation,
-    friendship: character.friendship,
-    talents: character.talents,
-    stats: character.stats,
+    talents: character.talents
+      ? { normal: character.talents.normal, skill: character.talents.skill, burst: character.talents.burst }
+      : null,
+    stats: finalStats(character.stats),
     weapon: character.weapon
       ? {
           name: character.weapon.name,
@@ -42,21 +63,13 @@ export function characterExport(character: CharacterBuild) {
       : null,
     artifacts: character.artifacts.map((artifact) => ({
       slot: artifact.slot,
-      name: artifact.name,
       set: artifact.setName,
+      name: artifact.name,
       rarity: artifact.rarity,
       level: artifact.level,
-      mainStat: { key: artifact.main.key, value: artifact.main.value, display: artifact.main.display },
-      substats: artifact.subs.map((sub) => ({ key: sub.key, value: sub.value, display: sub.display })),
+      mainStat: statLine(artifact.main),
+      substats: artifact.subs.map(statLine),
     })),
-    showcase: character.showcase,
-    guide: {
-      score: character.guide.score,
-      role: character.guide.role,
-      headline: character.guide.headline,
-      checks: character.guide.checks,
-      suggestions: character.guide.suggestions,
-    },
   };
 }
 
@@ -70,24 +83,12 @@ export function characterJson(character: CharacterBuild, profile?: ProfilePayloa
   return JSON.stringify(sanitize({ player: owner(profile), character: characterExport(character) }), null, 2);
 }
 
-export interface PartyExtra {
-  name: string;
-  resonances?: Array<{ title: string; detail: string }>;
-  notes?: unknown;
-}
-
-export function partyJson(
-  party: PartyExtra,
-  members: Array<CharacterBuild | null>,
-  profile?: ProfilePayload | null
-): string {
+/** Party members' objective facts only. No resonance text, warnings, advice or AI answer. */
+export function partyJson(partyName: string, members: Array<CharacterBuild | null>, profile?: ProfilePayload | null): string {
   const data = {
     player: owner(profile),
     party: {
-      name: party.name,
-      elements: members.map((member) => member?.element ?? null),
-      resonances: party.resonances ?? [],
-      notes: party.notes ?? null,
+      name: partyName,
       members: members.map((member, index) => ({ slot: index + 1, ...(member ? characterExport(member) : { empty: true }) })),
     },
   };

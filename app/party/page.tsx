@@ -432,11 +432,7 @@ export default function PartyPage() {
           <CopyJsonButton
             className="h-12 rounded-2xl"
             build={() =>
-              partyJson(
-                { name: party.name, resonances: notes, notes: { misfits, advice } },
-                chosen,
-                profile
-              )
+              partyJson(party.name, chosen, profile)
             }
           />
           {file.parties.length > 1 && (
